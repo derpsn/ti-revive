@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cstdio>
 #include <memory>
+#include <thread>
 #include <filesystem>
 #ifdef _WIN32
 #include <process.h>
@@ -116,8 +117,14 @@ bool save_bank_file(const std::string &path, const Bank &bank)
     ok = fclose(f) == 0 && ok;
     // std::filesystem::rename replaces an existing file on Windows too (C rename() fails there)
     std::error_code ec;
-    if (ok)
+    // Windows refuses the replace for a moment while another writer replaces or reads the same file (1 of 200 saves
+    // in memsync_bank_file_temp_name_is_unique_per_writer, release CI 0.8.44): try again for up to ~100 ms
+    for (int i = 0; ok && i < 20; i++) {
         std::filesystem::rename(u8path(tmp), u8path(path), ec);
+        if (!ec)
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
     std::error_code rm;
     if (!ok || ec) // a unique name is not overwritten by the next save: remove it
         std::filesystem::remove(u8path(tmp), rm);
