@@ -119,7 +119,9 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
    RELEASE 0.8.44 (user 2026-11-26: skip L7/W2-64/1024, ship): release text + What's New done (ac2d5eb);
    site check DONE (sync no longer 'play while it runs', ROM banks, 6/3 asks E594, CC refuses while a plug-in plays,
    handover E590, tests 1081, backup test scope; T9 automation hold has no E entry, wording no longer says 'like the
-   original'). #47 #45 closed (user). NEXT: merge -F -> verify -> tag v0.8.44 -> CI -> site.yml -> installs -> #37 logs; checklist scripts/checklists/round-0.8.44.json published as
+   original'). #47 #45 closed (user). Final CI 45893206355 green; MERGED main fd5c1eb (parents 932dfd2 + 8a42318,
+   tree = round), tag v0.8.44 pushed, release CI 45894541189 running. NEXT: release green? -> site.yml -> installs ->
+   #37 rc9 Logic logs (work/issue37/rc9: sync reports + safety net 3-8 stamps per Play, one 2042-frame catch-up); checklist scripts/checklists/round-0.8.44.json published as
    https://claude.ai/artifact/FhiP1yThnqamYEPb36HBig (marks in rounds/0.8.44/marks).
    OWED before the release (ask the user first, rule 2, no flood): hil.sh + hil-win at blocks 32-512 both rates
    (T14 NP 4 = top risk); win11 VM (T5 writes, T17 overlapped reads, T6/T7 protocol, B4-B6/D17 pipe security);
