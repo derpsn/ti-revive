@@ -29,6 +29,7 @@ extern char **environ;
 #include "model/utf8.h"
 #include "editor/editormenus.h"
 #include "editor/dragsend.h"
+#include "editor/framepace.h"
 #include "editor/textfield.h"
 #include "editor/popupmenu.h"
 #include "popupwindow.h"
@@ -1111,13 +1112,13 @@ public:
                         auto it = deps_.rects.find(p);
                         if (it != deps_.rects.end())
                             for (auto &rc : it->second)
-                                invalidRect(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
+                                mark(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
                     }
                     if (plugin_->lcd_changed())
-                        invalidRect(CRect(200, 470, 560, 512));
+                        mark(CRect(200, 470, 560, 512));
                 }
             } else if (plugin_->lcd_changed() && !partial_)
-                invalidRect(CRect(200, 470, 560, 512)); // the LCD only
+                mark(CRect(200, 470, 560, 512)); // the LCD only
             else if (!plugin_->meters_pending())
                 preload_step();
             // the MIDI activity meters every tick, also while automation changes values each tick (they were the
@@ -1136,9 +1137,11 @@ public:
                             area.unite(rc);
                     }
                 if (!area.isEmpty())
-                    invalidRect(area);
+                    mark(area);
             }
         }, 50);
+        // paced redraws (framepace.h, #37 E607): the areas waiting for the next frame go out once the pacer allows
+        frame_timer_ = makeOwned<CVSTGUITimer>([this](CVSTGUITimer *) { flush_dirty(); }, 16);
     }
 
     // idle ticks: decode the skin's bitmaps ahead of use (Linux: and upload them as pixmaps), so the first visit of a
@@ -1413,6 +1416,10 @@ public:
         {
             long us = (long)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
             plugin_->diag.draw_us += us;
+            for (long m = plugin_->diag.draw_max_us.load(); us > m && !plugin_->diag.draw_max_us.compare_exchange_weak(m, us);) {
+            }
+            const int64_t end = now_us();
+            pacer_.drawn(end - us, end); // the next frame waits for twice this frame's cost
             (r.getWidth() >= getViewSize().getWidth() - 1 ? plugin_->diag.full_draws : plugin_->diag.part_draws)++;
         }
         if (env_drawtime())
@@ -1740,11 +1747,11 @@ public:
             for (const std::string *pp : {&gh.xparam, &gh.yparam})
                 if (!pp->empty())
                     drag_set(*pp, drag_.part, renderer_.graph_value(e, drag_.x, drag_.y, drag_.part, *pp, tx, ty));
-            invalidRect(CRect(drag_.x - 4, drag_.y - 4, drag_.x + e.w + 4, drag_.y + e.h + 4));
+            mark(CRect(drag_.x - 4, drag_.y - 4, drag_.x + e.w + 4, drag_.y + e.h + 4));
             for (auto &other : plugin_->take_changed()) // the knobs of these parameters move along
                 for (auto &rc : shown_rects(other))
-                    invalidRect(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
-            invalidRect(CRect(200, 470, 560, 512));
+                    mark(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
+            mark(CRect(200, 470, 560, 512));
             partial_ = true;
             event.consumed = true;
             return;
@@ -1802,12 +1809,12 @@ public:
         if (drag_rects_.empty())
             drag_rects_ = shown_rects(param);
         for (auto &rc : drag_rects_) // every control of this parameter (knob + value display ...)
-            invalidRect(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
+            mark(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
         for (auto &other : plugin_->take_changed()) // linked parameters (LFO/filter links) move along
             if (other != param)
                 for (auto &rc : shown_rects(other))
-                    invalidRect(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
-        invalidRect(CRect(200, 470, 560, 512));
+                    mark(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
+        mark(CRect(200, 470, 560, 512));
         partial_ = true;
         event.consumed = true;
     }
@@ -3172,6 +3179,32 @@ private:
     std::map<std::string, SharedPointer<CBitmap>> bitmaps_;
     VstguiCanvas canvas_;
     SharedPointer<CVSTGUITimer> timer_;
+    SharedPointer<CVSTGUITimer> frame_timer_; // 16 ms: draws what waits for the pacer (flush_dirty)
+    vti::FramePacer pacer_;
+    vti::DirtyRects dirty_;
+    static int64_t now_us()
+    {
+        return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    }
+    // a partial repaint: collected and drawn with the next frame the pacer allows (#37 E607: a repaint per mouse move
+    // kept a slow Mac's main thread busy and Logic got fewer values); the values themselves went out already
+    void mark(const CRect &r)
+    {
+        dirty_.add((int)std::floor(r.left), (int)std::floor(r.top), (int)std::ceil(r.right), (int)std::ceil(r.bottom));
+        flush_dirty();
+    }
+    void flush_dirty()
+    {
+        if (dirty_.empty())
+            return;
+        if (!pacer_.due(now_us())) {
+            plugin_->diag.paced++; // the log shows how often a slow machine waits (#37)
+            return;
+        }
+        for (const auto &d : dirty_.take())
+            invalidRect(CRect(d.x0, d.y0, d.x1, d.y1));
+    }
     Hit drag_;
     bool partial_ = false;
     std::vector<std::array<int, 4>> drag_rects_;

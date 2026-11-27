@@ -2165,10 +2165,11 @@ void VirusPlugin::diag_report()
         if (AudioGate::Use ring(out_->audio_gate()); ring)
             drops = (long long)out_->audio().drops();
     if (FILE *f = vti::u8fopen(own_cache_dir() + "/../diag.log", "a")) {
-        fprintf(f, "%ld s: draws full %ld partial %ld, draw time %ld ms, dirty ticks %ld, process calls %ld max %ld us,"
+        fprintf(f, "%ld s: draws full %ld partial %ld, draw time %ld ms (longest %.1f ms, held back %ld), dirty ticks %ld, process calls %ld max %ld us,"
                    " over block time %ld, audio %d drops %lld, queued %d, host %.0f Hz block %d (largest %ld)\n",
                 (long)std::time(nullptr), diag.full_draws.exchange(0), diag.part_draws.exchange(0),
-                diag.draw_us.exchange(0) / 1000, diag.dirty_ticks.exchange(0), diag.process_calls.exchange(0),
+                diag.draw_us.exchange(0) / 1000, diag.draw_max_us.exchange(0) / 1000.0, diag.paced.exchange(0),
+                diag.dirty_ticks.exchange(0), diag.process_calls.exchange(0),
                 diag.process_max_us.exchange(0), diag.process_over.exchange(0),
                 out_ ? (int)out_->audio_ready() : -1, drops,
                 out_ ? (int)out_->busy() : -1, rate_, block_, diag.block_max.exchange(0));
