@@ -86,6 +86,9 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
 
 ## NEXT
 
+- Side project, not part of the rounds (user 2026-11-27): the Modern skin lives on branch `skin-modern` (f3fb89f7,
+  local only); its state is in findings/skin-modern.md on that branch.
+
 0. **Wait on rc9 (2026-11-25):** #51 edy013 (RAM D fills? handover line if the double instance returns), #48 encoderaudio
    (rc9 with the hub; open for us: does a session reopen also restart the broker's MIDI IN read, or only the plug-in's
    connection), #37 packman83 (rc9 in Logic: Record Enable, Small, I/O 256, 5 Plays on the notes, log). Mac: user runs
