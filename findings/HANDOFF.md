@@ -104,7 +104,7 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
    Linux (install.sh), win11 VM (setup /quiet exit 0, VST3 28eebf43, VM shut down). Mac asleep: push
    work/rel-0.8.44/mx/TI-Revive-0.8.44-release to ~/Downloads when awake, user double-clicks the install command. #37 rc9 analysed (E605): kept rest stacks
    across Plays without a pre-shift; NOT fixed (user 2026-11-27): a start right on the notes is Access' own limit,
-   README + site now advise a pre-roll of a bar or two. Answered 2026-11-27 (issuecomment-7215812242), #37 still open: close with the user.
+   README + site now advise a pre-roll of a bar or two. Answered 2026-11-27 (issuecomment-7215812242). User: keep #37 OPEN, wait for packman83's reply, do not close.
 1. **Quiet issues:** #47 + #45 reach 7 days on 2026-11-26 (close message, with the user), #53 on 2026-11-30, #42 asked
    nothing since 11-20 (reporter promised a weekend test). #51: remove VTI_NATIVE_MARGIN, 15-20 min, diag.log.
 2. **#37 after A+B (code in since rc8, E589), decided as a known limit (E605):** parked, only if users report it with a pre-roll: a burst without a Play window (setActive alone, Play again
