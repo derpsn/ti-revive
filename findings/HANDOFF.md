@@ -99,8 +99,9 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
    store_patch refusing an unsynced RAM bank ("Not saved") is kept, decided by the user 2026-11-26.
 0c. **0.8.44 (2026-11-26): research fix run T1-T23 + clean sync, all tested, MERGED main fd5c1eb, tag v0.8.44.**
    Details: findings/log/2026-11.md "Round 0.8.44 tests and release". Release CI 45894541189: native-windows unit test
-   failed once (bank file save race, Windows), rerun --failed running; fix c133b9c on round-0.8.45 (not in 0.8.44).
-   NEXT: release green? -> site.yml by hand -> installs (Linux, win11 VM, Mac) -> #37 rc9 Logic logs (work/issue37/rc9:
+   failed once (bank file save race, Windows), rerun passed: RELEASED 2026-11-26 21:09 UTC, Latest, 8 assets. Fix c133b9c
+   on round-0.8.45 (not in 0.8.44). NEXT: site.yml by hand (my run was refused by the permission check: user starts it
+   or approves) -> installs (Linux, win11 VM, Mac) -> #37 rc9 Logic logs (work/issue37/rc9:
    per Play 1-2 Virus sync reports, safety net 3-8 stamps, one 2042-frame catch-up; compare E589).
 1. **Quiet issues:** #47 + #45 reach 7 days on 2026-11-26 (close message, with the user), #53 on 2026-11-30, #42 asked
    nothing since 11-20 (reporter promised a weekend test). #51: remove VTI_NATIVE_MARGIN, 15-20 min, diag.log.
