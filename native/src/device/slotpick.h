@@ -4,6 +4,8 @@
 // with one Virus nothing changes for the user.
 #pragma once
 #include <algorithm>
+#include <cctype>
+#include <cctype>
 #include <string>
 #include <vector>
 
@@ -61,6 +63,19 @@ inline int slot_to_save(int found, int preferred) { return found ? found : prefe
 // with several, the one whose UID carries the broker's USB serial string, else the slot-th by UID order; -1 = none.
 // shortcut: the UID format of Apple's USB audio driver is not verified with two Viruses, upgrade to a locationID
 // match through IOKit when a log shows the serial is not in the UID.
+// macOS: is this Core Audio device the Virus? Its name holds "Virus" when the Mac read the Virus' USB name; else
+// (#60: through a hub) the model UID of a USB audio device, "product:VID:PID" in hex, still holds 133E:0815.
+// shortcut: the model UID format is Apple's, not documented as stable; checked on a Virus once a Mac shows it (#60)
+inline bool core_audio_is_virus(const std::string &name, const std::string &model_uid)
+{
+    if (name.find("Virus") != std::string::npos)
+        return true;
+    std::string u = model_uid;
+    std::transform(u.begin(), u.end(), u.begin(), [](unsigned char c) { return (char)std::toupper(c); });
+    const std::string id = ":133E:0815";
+    return u.size() >= id.size() && u.compare(u.size() - id.size(), id.size(), id) == 0;
+}
+
 inline int core_audio_pick(const std::vector<std::string> &uids, const std::string &serial, int slot)
 {
     const int n = (int)uids.size();

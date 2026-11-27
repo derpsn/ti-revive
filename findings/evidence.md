@@ -6372,3 +6372,13 @@ Issue #37 with v0.8.44-rc9 (reporter, macOS Catalina, Logic Pro, TI Desktop, I/O
 - **Method:** log reading, code reading
 - **Confidence:** MEDIUM (pattern HIGH from the logs; why no pre-shift at block 256 in Logic not known) / MED (pre-roll clean in Logic: one reporter, no log of a pre-roll Play)
 - **Hardware:** no (reporter's logs only)
+
+### E606
+
+Issue #60 (reporter DeepSeeBee, TI2 Desktop, macOS on Apple Silicon, TI Revive 0.8.43, no log yet): worked on Wednesday, now the "no connection" page; works only with the Virus straight on the Mac, not through the USB hub it used before; System Information shows the device with vendor ID 0x133e but no vendor name; after renaming a "patches.mid" in Documents the plug-in ran a bank sync and then showed "no Virus TI can be found". Code reading: the broker takes the Virus by VID/PID alone (src/broker/vticore.c open_slot), a hub passes the device descriptor on unchanged; but on macOS the plug-in's audio input took the Core Audio device whose *name* contains "Virus" (audioin.cpp find_virus), a name macOS builds from the Virus' USB strings. Reading (LOW, not shown): if the Mac could not read the strings behind the hub, the audio device has another name and the plug-in finds the Virus over MIDI but not its audio ("no Virus audio device in Core Audio" in the plug-in log). The missing vendor name does not prove a missing product name. Change (round 0.8.45): a Core Audio device also counts as the Virus when its model UID ends in the USB ids 133E:0815 (slotpick.h core_audio_is_virus, test core_audio_is_virus_by_name_or_usb_ids); the log line then adds "by its USB ids". The model UID format "product:VID:PID" is from memory of Apple's USB audio devices, not checked on our Mac (asleep; no Core Audio dump of the Virus in our logs). Asked the reporter for the plug-in log, the product name in System Information through the hub and directly, and the path of the renamed file (issuecomment-7217882172).
+
+- **Date:** 2026-11-27
+- **Pointer:** issue #60; native/src/device/audioin.cpp find_virus, native/src/device/slotpick.h core_audio_is_virus, src/broker/vticore.c open_slot
+- **Method:** report reading, code reading
+- **Confidence:** LOW (cause), open (the model UID format on a real Virus)
+- **Hardware:** no (Linux build and unit tests only; the macOS lines not compiled here)

@@ -179,8 +179,8 @@ static int input_channels(AudioObjectID id)
     return n;
 }
 
-// the Virus as Core Audio input device: name contains "Virus", at least 6 input channels (E082 order); with several
-// (#45) the one of this broker's Virus (slotpick.h)
+// the Virus as Core Audio input device: name contains "Virus" or the model UID its USB ids (#60), at least 6 input
+// channels (E082 order); with several (#45) the one of this broker's Virus (slotpick.h)
 static AudioObjectID find_virus(const std::string &serial, int slot, std::string &note)
 {
     AudioObjectPropertyAddress a{kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
@@ -193,16 +193,21 @@ static AudioObjectID find_virus(const std::string &serial, int slot, std::string
         return kAudioObjectUnknown;
     std::vector<AudioObjectID> found;
     std::vector<std::string> uids;
-    for (AudioObjectID id : ids)
-        if (cf_string(id, kAudioObjectPropertyName).find("Virus") != std::string::npos &&
+    bool by_ids = false; // #60: a Virus without its USB name, found by 133E:0815 in the model UID
+    for (AudioObjectID id : ids) {
+        const std::string name = cf_string(id, kAudioObjectPropertyName);
+        if (vti::core_audio_is_virus(name, cf_string(id, kAudioDevicePropertyModelUID)) &&
             input_channels(id) >= VTI_AUDIO_IN_CH) {
+            by_ids = by_ids || name.find("Virus") == std::string::npos;
             found.push_back(id);
             uids.push_back(cf_string(id, kAudioDevicePropertyDeviceUID));
         }
+    }
     const int pick = vti::core_audio_pick(uids, serial, slot);
     // the UID may carry the serial: the note says only how it was matched (rule 5); the plug-in logs it (#50)
     const bool by_serial = pick >= 0 && !serial.empty() && uids[pick].find(serial) != std::string::npos;
-    note = vti::core_audio_note((int)found.size(), slot, pick, by_serial);
+    note = vti::core_audio_note((int)found.size(), slot, pick, by_serial) +
+           (by_ids ? " (by its USB ids: the Mac gives it no Virus name)" : "");
     return pick >= 0 ? found[pick] : kAudioObjectUnknown;
 }
 

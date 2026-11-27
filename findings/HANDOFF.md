@@ -107,8 +107,9 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
    README + site now advise a pre-roll of a bar or two. Answered 2026-11-27 (issuecomment-7215812242). User: keep #37 OPEN, wait for packman83's reply, do not close.
 1. **Quiet issues:** #47 + #45 closed 2026-11-26, #42 closed 2026-11-27 (with the user); #53 reaches 7 days on
    2026-11-30. #60 (new 2026-11-27, DeepSeeBee, TI2, macOS, 0.8.43: no connection, works only without the hub, no
-   vendor name in System Information, renamed "patches.mid" -> bank sync -> "no Virus"): reply drafted (0.8.44, power
-   off/on, Save logs, path of patches.mid), waits for the user's go. #51: remove VTI_NATIVE_MARGIN, 15-20 min, diag.log.
+   vendor name in System Information, renamed "patches.mid" -> bank sync -> "no Virus"): asked for log + System Information
+   product name + file path (-7217882172). E606: macOS audio matched by name only; round-0.8.45 fallback by model UID
+   133E:0815 (not compiled on a Mac, format unchecked). RC for him only after his log, with the user's go. #51: remove VTI_NATIVE_MARGIN, 15-20 min, diag.log.
 2. **#37 after A+B (code in since rc8, E589), decided as a known limit (E605):** parked, only if users report it with a pre-roll: a burst without a Play window (setActive alone, Play again
    without stop, buffer switch, Logic live/not-live switch) waits 0.5 s (design C: ungate the pre-shift, needs a
    per-block trace first); our own 6 ms process() stall at block 64 during the bank sync. Not heard in Logic yet.
