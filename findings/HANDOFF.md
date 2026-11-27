@@ -114,8 +114,9 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
    RPN, pan, volume sent again and again; Live clean as VST3 AND as AU. After a Logic restart NOT reproduced (heavy Latch
    on 4 parts, the old heavy project): the lockup was likely an after-effect of our `sample` runs. Back to E607 for
    packman83 (slow repaints on his old Mac): framepace WIRED (viruseditor mark/flush_dirty, 16 ms frame timer), log
-   line + longest repaint + held back; Linux: 4 pages identical partial vs full (nativehost, real TI2). v0.8.45-rc1 (user
-   2026-11-27: Mac build for packman83): release text New in 0.8.45 in build.yml; after CI: install, reply #37 (approval). Rule: no `sample` on a playing DAW (E609). framepace.h
+   line + longest repaint + held back; Linux: 4 pages identical partial vs full (nativehost, real TI2). v0.8.45-rc1 PRE-RELEASED
+   (tag on 1362ced, CI 46022038430 all 11 jobs green incl. native-windows = c133b9c's test; 8 assets); #37 reply posted
+   (-7221820890, libusb package). Waits: packman83 (Latch test + log). Not installed on our machines yet. Rule: no `sample` on a playing DAW (E609). framepace.h
    (pacer + dirty rects, tests) committed, not wired in. Mac: 0.8.44 release installed 2026-11-27, Virus on the Mac.
 1. **Quiet issues:** #47 + #45 closed 2026-11-26, #42 closed 2026-11-27 (with the user); #53 reaches 7 days on
    2026-11-30. #60 (new 2026-11-27, DeepSeeBee, TI2, macOS, 0.8.43: no connection, works only without the hub, no
