@@ -102,11 +102,12 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
    failed once (bank file save race, Windows), rerun passed: RELEASED 2026-11-26 21:09 UTC, Latest, 8 assets. Fix c133b9c
    on round-0.8.45 (not in 0.8.44). Site rebuilt (site.yml 45956400000, live: 0.8.44, 1081 tests). Release installed:
    Linux (install.sh), win11 VM (setup /quiet exit 0, VST3 28eebf43, VM shut down). Mac asleep: push
-   work/rel-0.8.44/mx/TI-Revive-0.8.44-release to ~/Downloads when awake, user double-clicks the install command. NEXT: #37 rc9 Logic logs (work/issue37/rc9:
-   per Play 1-2 Virus sync reports, safety net 3-8 stamps, one 2042-frame catch-up; compare E589).
+   work/rel-0.8.44/mx/TI-Revive-0.8.44-release to ~/Downloads when awake, user double-clicks the install command. #37 rc9 analysed (E605): kept rest stacks
+   across Plays without a pre-shift; NOT fixed (user 2026-11-27): a start right on the notes is Access' own limit,
+   README + site now advise a pre-roll of a bar or two. NEXT: reply to packman83 (draft, user approves) and close #37.
 1. **Quiet issues:** #47 + #45 reach 7 days on 2026-11-26 (close message, with the user), #53 on 2026-11-30, #42 asked
    nothing since 11-20 (reporter promised a weekend test). #51: remove VTI_NATIVE_MARGIN, 15-20 min, diag.log.
-2. **#37 after A+B (code in since rc8, E589):** still open: a burst without a Play window (setActive alone, Play again
+2. **#37 after A+B (code in since rc8, E589), decided as a known limit (E605):** parked, only if users report it with a pre-roll: a burst without a Play window (setActive alone, Play again
    without stop, buffer switch, Logic live/not-live switch) waits 0.5 s (design C: ungate the pre-shift, needs a
    per-block trace first); our own 6 ms process() stall at block 64 during the bank sync. Not heard in Logic yet.
 3. Release text (build.yml + infopage.h): written for marker, pre-shift, first Play, #51, library saves, xrun crossfade,

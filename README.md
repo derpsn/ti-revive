@@ -281,9 +281,11 @@ for the Virus.
 reports several notes in a row that arrived too late for their time stamp while your DAW plays. Stop and Play clears
 it. If it comes back, use a USB port the Virus does not share with other devices; the original gives the same advice. On macOS, notes could come late after an export in 0.8.25 and 0.8.26; since 0.8.27 the plug-in fills the audio cycles Core Audio skips during an export. In 0.8.30 a few notes of an export at a small buffer size (128 samples) still came 3-6 ms late and the message appeared; fixed in 0.8.31 (an export at 48 kHz and 128 samples: 256 of 256 notes on the grid).
 
-**Start playback slightly before the first note.** The plug-in sends notes to the Virus ahead of time to make up
-for the USB round trip; right at Play, notes in the first quarter second can come late or be skipped. This was the
-same with Access' own driver.
+**Start playback a bar or two before the first note (pre-roll or count-in).** The plug-in sends notes to the Virus
+ahead of time to make up for the USB round trip; right at Play, notes in the first quarter second can come late or be
+skipped. Some DAWs (Logic, REAPER) also process ahead at Play, so a start right on a note can crackle slightly and put
+the first 2 or 3 notes a little late. This was the same with Access' own plug-in and driver; Access' manual also
+advises two bars before the first notes, and a pre-roll of two bars when bouncing. (E573, E605)
 
 **All systems**
 

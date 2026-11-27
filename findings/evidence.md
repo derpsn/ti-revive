@@ -6362,3 +6362,13 @@ No stall: the silent hil-mac items of round 0.8.44 were the clean sync (E161 upd
 - **Method:** hardware runs (nativehost, C4 every second) and comparison of the cache files
 - **Confidence:** HIGH
 - **Hardware:** yes (TI2 Desktop, macOS 27.2.1 and Linux)
+
+### E605
+
+Issue #37 with v0.8.44-rc9 (reporter, macOS Catalina, Logic Pro, TI Desktop, I/O buffer 256, Process Buffer Range Small, Play from stop right on the notes about 5 times, armed and not armed; logs TI-Revive-logs-2026-11-26-1518 and -1521, sessions from 1795693519): the reporter hears a slight crackle and 2 or 3 notes out of sync at the first Play after loading Logic, clean after a few tries. In the three rc9 sessions the Plays alternate between "timeline: ~1000 frames behind kept, inside the stamp lead" (535-1146) and "timeline caught up by ~2000-2400 frames (crossfaded)" with "safety net moved 1-36 stamps forward"; each session has one Virus sync report at its first Play. None of these Plays logged "Play: timeline back by" (the older 2048 and 192 sessions log it at every Play). Reading (MED, from the code, not reproduced): TimelineFollow::play_started (timelinefollow.h) folds the kept rest into the shift only when a Play gets a pre-shift, so without one each Play's ~1000 frames add to the last; once the sum passes the room (~2048) the next Play catches up while the notes play, which is the crackle, and the floored stamps are the late notes. Maintainer decision (2026-11-27): not fixed. A start right on a note is the case Access' manual tells users to avoid (two bars before the first notes, E573), the original plays stale ring audio in the same burst (E573), and the REAPER Play fix was reverted for the same reason (E341). README and site now advise a pre-roll or count-in of a bar or two. The reporter already confirmed the pre-roll in Logic three times (2026-11-21 rc2: "starting playback 1 or 2 bars before the notes solves the sync and crackling issues"; 2026-11-22; 2026-11-23 rc7: "Starting playback 1 bar before the notes ... without any noticeable crackling"), his words only.
+
+- **Date:** 2026-11-27
+- **Pointer:** issue #37 (logs above, local copies work/issue37/rc9); native/src/device/timelinefollow.h play_started
+- **Method:** log reading, code reading
+- **Confidence:** MEDIUM (pattern HIGH from the logs; why no pre-shift at block 256 in Logic not known) / MED (pre-roll clean in Logic: one reporter, no log of a pre-roll Play)
+- **Hardware:** no (reporter's logs only)
