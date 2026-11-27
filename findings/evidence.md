@@ -6392,3 +6392,13 @@ Issue #37 follow-up (packman83, 2026-11-27 13:22 UTC, macOS Catalina, Logic Pro,
 - **Method:** log reading, frames of the reporter's video, code reading
 - **Confidence:** MEDIUM (draw times HIGH from the log; that they cause the coarse curves and the lag is the reading)
 - **Hardware:** no (reporter's Mac only)
+
+### E608
+
+E607 measured on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator Studio, TI Revive 0.8.44 release fd5c1ebc as AU, TI2 Desktop, 48 kHz, Latch on Filter1 Cutoff, the maintainer dragging the knob while playing): the editor's partial repaints cost 0.3-1.6 ms each ("draws full 1 partial 522, draw time 295 ms", "partial 388, 292 ms", "partial 186, 90 ms" per 10 s), against 25-35 ms on the reporter's Catalina Mac, and the curve recorded densely. This Logic hosts the AU out of process (AUHostingService), so the editor's drawing does not run on Logic's own main thread there; on the reporter's Logic it likely does (his lag). macOS `sample` (1 ms) of the hosting process during a drag: TI Revive in 187 of 3859 main-thread samples (the release binary has no symbols). Side effect of the measurement: while `sample` paused the hosting process, Logic processed only 304128 and 197312 frames per 10 s (Virus 480000) and showed "Fehler beim Synchronisieren von Audio und MIDI. Abtastrate 17 061 erkannt"; the plug-in's process() stayed at 10-17 us, so the profiler caused it, not the plug-in (MED: timing match only). Consequence: the slow repaint cannot be profiled on our M3; the reporter's machine is where it shows, so the plug-in log needs a per-repaint breakdown.
+
+- **Date:** 2026-11-27
+- **Pointer:** work/ui-perf/mac (sample reports, screenshot; git-ignored), work/ui-perf/mac-sample.sh; Mac diag.log 1795788830-1795788990
+- **Method:** hardware run with the maintainer, macOS sample, plug-in log
+- **Confidence:** HIGH (draw times on the M3) / MED (the profiler caused Logic's sync dialog)
+- **Hardware:** yes (TI2 Desktop, macOS 27.2.1, M3)
