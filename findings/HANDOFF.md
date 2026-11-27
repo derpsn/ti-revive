@@ -108,8 +108,10 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
    (pre-roll) and reported knob automation in Logic coarse + Logic lagging (E607: editor partial repaints 25-35 ms on his
    Mac, up to 7.3 s per 10 s on the main thread); no reply posted yet. DECIDED (user 2026-11-27): no quick fix;
    editor render pipeline rework in 0.8.45 (1 profile on the Mac, 2 frame pacing, 3 one redraw path, 4 CI render budget).
-   Mac measured (E608): M3 repaints 0.3-1.6 ms, smooth; slow only on the reporter's Mac -> next: per-repaint breakdown in
-   the plug-in log + frame pacing (user to decide). Mac: 0.8.44 release installed 2026-11-27, Virus on the Mac.
+   Mac measured (E608): M3 repaints 0.3-1.6 ms. BUT the user reproduced the coarse lane on our Mac (15:23, screenshot
+   work/ui-perf/mac/shot2.png: [1] Filter1 Cutoff blocky, [3] smooth) with cheap draws -> drawing is NOT the cause there;
+   asked the user which lane came from which knob; next: per-drag log (values sent vs. host values back). framepace.h
+   (pacer + dirty rects, tests) committed, not wired in. Mac: 0.8.44 release installed 2026-11-27, Virus on the Mac.
 1. **Quiet issues:** #47 + #45 closed 2026-11-26, #42 closed 2026-11-27 (with the user); #53 reaches 7 days on
    2026-11-30. #60 (new 2026-11-27, DeepSeeBee, TI2, macOS, 0.8.43: no connection, works only without the hub, no
    vendor name in System Information, renamed "patches.mid" -> bank sync -> "no Virus"): asked for log + System Information
