@@ -111,8 +111,9 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
    Mac measured (E608): M3 repaints 0.3-1.6 ms. BUT the user reproduced the coarse lane on our Mac (15:23, screenshot
    work/ui-perf/mac/shot2.png: [1] Filter1 Cutoff blocky, [3] smooth) with cheap draws -> drawing is NOT the cause there;
    E609: Logic lag reproduced (AU host 180 % CPU, Apple AU bridge parameter traffic); Logic only: unchanged pitch bend,
-   RPN, pan, volume sent again and again; Live clean as VST3 AND as AU -> Logic (or its out-of-process AU host) is the
-   trigger. Next (waits for the user's go): log counters for where they come from, Logic run, dedupe, re-test. framepace.h
+   RPN, pan, volume sent again and again; Live clean as VST3 AND as AU. After a Logic restart NOT reproduced (heavy Latch
+   on 4 parts, the old heavy project): the lockup was likely an after-effect of our `sample` runs. Back to E607 for
+   packman83 (slow repaints on his old Mac): wire framepace.h + per-repaint breakdown, test build (user's go). framepace.h
    (pacer + dirty rects, tests) committed, not wired in. Mac: 0.8.44 release installed 2026-11-27, Virus on the Mac.
 1. **Quiet issues:** #47 + #45 closed 2026-11-26, #42 closed 2026-11-27 (with the user); #53 reaches 7 days on
    2026-11-30. #60 (new 2026-11-27, DeepSeeBee, TI2, macOS, 0.8.43: no connection, works only without the hub, no

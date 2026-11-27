@@ -1821,7 +1821,7 @@ Entries: 606. Marks after an entry: its lowest confidence level when below HIGH,
 - [E606](evidence.md#e606) Issue #60 (reporter DeepSeeBee, TI2 Desktop, macOS on Apple Silicon, TI Revive 0.8.43, no log yet): worked on ... (LOW; open; not on hardware)
 - [E607](evidence.md#e607) Issue #37 follow-up (packman83, 2026-11-27 13:22 UTC, macOS Catalina, Logic Pro, TI Desktop, 0.8.44-rc9 ... (MED; not on hardware)
 - [E608](evidence.md#e608) E607 measured on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator Studio, TI Revive 0.8.44 release ... (MED)
-- [E609](evidence.md#e609) Logic lag while automating TI Revive, reproduced on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator ... (LOW)
+- [E609](evidence.md#e609) Logic lag while automating TI Revive, reproduced on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator ... (MED)
 
 ## Linux (247)
 
@@ -2361,7 +2361,7 @@ Entries: 606. Marks after an entry: its lowest confidence level when below HIGH,
 - [E604](evidence.md#e604) No stall: the silent hil-mac items of round 0.8.44 were the clean sync (E161 update) re-reading a bank that ...
 - [E606](evidence.md#e606) Issue #60 (reporter DeepSeeBee, TI2 Desktop, macOS on Apple Silicon, TI Revive 0.8.43, no log yet): worked on ... (LOW; open; not on hardware)
 - [E608](evidence.md#e608) E607 measured on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator Studio, TI Revive 0.8.44 release ... (MED)
-- [E609](evidence.md#e609) Logic lag while automating TI Revive, reproduced on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator ... (LOW)
+- [E609](evidence.md#e609) Logic lag while automating TI Revive, reproduced on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator ... (MED)
 
 ## DAWs (264)
 
@@ -2628,9 +2628,9 @@ Entries: 606. Marks after an entry: its lowest confidence level when below HIGH,
 - [E605](evidence.md#e605) Issue #37 with v0.8.44-rc9 (reporter, macOS Catalina, Logic Pro, TI Desktop, I/O buffer 256, Process Buffer ... (MED; not on hardware)
 - [E607](evidence.md#e607) Issue #37 follow-up (packman83, 2026-11-27 13:22 UTC, macOS Catalina, Logic Pro, TI Desktop, 0.8.44-rc9 ... (MED; not on hardware)
 - [E608](evidence.md#e608) E607 measured on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator Studio, TI Revive 0.8.44 release ... (MED)
-- [E609](evidence.md#e609) Logic lag while automating TI Revive, reproduced on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator ... (LOW)
+- [E609](evidence.md#e609) Logic lag while automating TI Revive, reproduced on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator ... (MED)
 
-## User reports (GitHub issues, forums) (164)
+## User reports (GitHub issues, forums) (165)
 
 - [E115](evidence.md#e115) Report from a user (Reddit): with TI Revive a Virus TI **Snow** is not found by the Snow plug-in; the regular ... (open)
 - [E120](evidence.md#e120) Linux L4 (user, REAPER 7.82 portable, GNOME Wayland, lab Wine 10.0): plug-in loads through yabridge and ...
@@ -2796,6 +2796,7 @@ Entries: 606. Marks after an entry: its lowest confidence level when below HIGH,
 - [E606](evidence.md#e606) Issue #60 (reporter DeepSeeBee, TI2 Desktop, macOS on Apple Silicon, TI Revive 0.8.43, no log yet): worked on ... (LOW; open; not on hardware)
 - [E607](evidence.md#e607) Issue #37 follow-up (packman83, 2026-11-27 13:22 UTC, macOS Catalina, Logic Pro, TI Desktop, 0.8.44-rc9 ... (MED; not on hardware)
 - [E608](evidence.md#e608) E607 measured on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator Studio, TI Revive 0.8.44 release ... (MED)
+- [E609](evidence.md#e609) Logic lag while automating TI Revive, reproduced on our Mac (MacBook Air M3, macOS 27.2.1, Logic Pro Creator ... (MED)
 
 ## Safety (rule 2): sends that can hurt the Virus (68)
 
