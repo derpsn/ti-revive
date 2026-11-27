@@ -104,7 +104,9 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
    Linux (install.sh), win11 VM (setup /quiet exit 0, VST3 28eebf43, VM shut down). Mac asleep: push
    work/rel-0.8.44/mx/TI-Revive-0.8.44-release to ~/Downloads when awake, user double-clicks the install command. #37 rc9 analysed (E605): kept rest stacks
    across Plays without a pre-shift; NOT fixed (user 2026-11-27): a start right on the notes is Access' own limit,
-   README + site now advise a pre-roll of a bar or two. Answered 2026-11-27 (issuecomment-7215812242). User: keep #37 OPEN, wait for packman83's reply, do not close.
+   README + site now advise a pre-roll of a bar or two. Answered 2026-11-27 (issuecomment-7215812242). User: keep #37 OPEN. 2026-11-27 13:22 packman83 agreed
+   (pre-roll) and reported knob automation in Logic coarse + Logic lagging (E607: editor partial repaints 25-35 ms on his
+   Mac, up to 7.3 s per 10 s on the main thread); fix proposal to the user, no reply posted yet.
 1. **Quiet issues:** #47 + #45 closed 2026-11-26, #42 closed 2026-11-27 (with the user); #53 reaches 7 days on
    2026-11-30. #60 (new 2026-11-27, DeepSeeBee, TI2, macOS, 0.8.43: no connection, works only without the hub, no
    vendor name in System Information, renamed "patches.mid" -> bank sync -> "no Virus"): asked for log + System Information

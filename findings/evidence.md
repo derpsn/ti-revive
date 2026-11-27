@@ -6382,3 +6382,13 @@ Issue #60 (reporter DeepSeeBee, TI2 Desktop, macOS on Apple Silicon, TI Revive 0
 - **Method:** report reading, code reading
 - **Confidence:** LOW (cause), open (the model UID format on a real Virus)
 - **Hardware:** no (Linux build and unit tests only; the macOS lines not compiled here)
+
+### E607
+
+Issue #37 follow-up (packman83, 2026-11-27 13:22 UTC, macOS Catalina, Logic Pro, TI Desktop, 0.8.44-rc9 d255cc1a; log TI-Revive-logs-2026-11-27-1634, session 1795783780, block 512; screen recording 41 s): automation written from the plug-in's knobs (Latch, Write, Touch) has wrong values and coarse curves and Logic lags and freezes; written from the Virus' knobs it is smooth and accurate. Video (frames every 5 s): Filter1 Cutoff in Latch, the editor's knob gives a staircase of a few steps (left clips), the Virus' knob dense fast curves (right clips). Log: in every 10 s window with knob drags the editor's drawing took 1.0-7.3 s on the host's main thread ("draws full 1 partial 209, draw time 7327 ms", "full 2 partial 219, 5996 ms", "full 2 partial 192, 5633 ms"), about 25-35 ms per partial repaint; a full repaint in the same session took about 11 ms ("full 18 partial 0, 193 ms"). Audio side calm (process max 15-42 us, drops 0). Reading (MED): each mouse move during a knob drag repaints the knob, the linked controls and the LCD; on macOS a partial repaint draws every element in the dirty area from scratch (drawRect: the cached static layer is copied only for full repaints, "small areas: drawing their few elements directly is cheaper on X11"), at 25-35 ms each the main thread is busy up to 73 % of the time, so macOS hands fewer mouse moves to the editor, the plug-in sends fewer values to Logic (the staircase) and Logic's own GUI and automation stall. The Virus' knobs go the audio-thread path (E542) and draw nothing heavy, which fits that they record smoothly. Not measured on our Mac (asleep); the original's drag path not compared.
+
+- **Date:** 2026-11-27
+- **Pointer:** issue #37 (log and recording, local copies work/issue37/auto); native/plugin/source/viruseditor.cpp drawRect (full_update, statics_) and onMouseMoved (knob drag: invalidRect per move)
+- **Method:** log reading, frames of the reporter's video, code reading
+- **Confidence:** MEDIUM (draw times HIGH from the log; that they cause the coarse curves and the lag is the reading)
+- **Hardware:** no (reporter's Mac only)
