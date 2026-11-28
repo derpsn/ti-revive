@@ -35,6 +35,8 @@ public:
     // address a single dump to RAM `bank` (0..3) program `slot` - bank byte 1..4 - and recompute both checksums
     static void address(Patch &d, int bank, int slot)
     {
+        if (d.size() != 524) // no single dump (a damaged library entry): left as it is
+            return;
         d[7] = (uint8_t)(bank + 1), d[8] = (uint8_t)slot;
         checksums(d);
     }
@@ -55,11 +57,15 @@ public:
     // the original's name order: without regard to case (E303), spaces and other characters as they are
     static bool name_less(const Patch &a, const Patch &b)
     {
-        return std::lexicographical_compare(a.begin() + 249, a.begin() + 259, b.begin() + 249, b.begin() + 259,
+        auto name = [](const Patch &d) { return d.size() >= 259 ? d.begin() + 249 : d.end(); }; // too short: ""
+        auto name_end = [](const Patch &d) { return d.size() >= 259 ? d.begin() + 259 : d.end(); };
+        return std::lexicographical_compare(name(a), name_end(a), name(b), name_end(b),
                                             [](uint8_t x, uint8_t y) { return std::tolower(x) < std::tolower(y); });
     }
     static void checksums(Patch &d)
     {
+        if (d.size() < 523)
+            return;
         unsigned a = 0;
         for (int i = 5; i < 265; i++)
             a += d[i];
