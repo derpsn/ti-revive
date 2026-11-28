@@ -917,7 +917,7 @@ static int keep_tx(void *client_fd)
 static vti_sxhold g_sxhold; // g_cs_tx: whose SysEx is open on the wire (sxhold.h)
 
 // g_cs_tx for client c's write, once no other client's SysEx is open on the wire (bounded, sxhold.h)
-static void tx_lock(const client *c)
+static void tx_lock(const void *c)
 {
     const uint32_t start = uptime_ms();
     pthread_mutex_lock(&g_cs_tx);
@@ -933,11 +933,20 @@ static void tx_lock(const client *c)
 }
 
 #ifdef __APPLE__
-// shortcut: not held by an open SysEx (sxhold.h); the 0.7.x opt-in path only, no Control Center next to it
+// the 0.7.x opt-in path: the same rule-2 filter and SysEx hold as a client's write (review A3); its watch is its identity
+static vti_sxwatch g_mdw_sx; // pump thread
 static int midi_write(const uint8_t *data, int len) // pump thread: plug-in channel packets from the MDW ring
 {
-    pthread_mutex_lock(&g_cs_tx);
+    if (vti_write_blocked(&g_mdw_sx, data, len)) {
+        blog("refused a MIDI-port write of %d bytes (rule 2)", len);
+        return -1;
+    }
+    tx_lock(&g_mdw_sx);
     int r = g_dev ? vti_write_keep(g_dev, VTI_EP_MI04_OUT, data, len, keep_tx, NULL) : -1;
+    if (!r)
+        vti_sx_wrote(&g_sxhold, &g_mdw_sx, &g_mdw_sx, uptime_ms());
+    else
+        vti_sx_gone(&g_sxhold, &g_mdw_sx);
     pthread_mutex_unlock(&g_cs_tx);
     return r;
 }
