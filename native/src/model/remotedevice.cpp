@@ -642,6 +642,8 @@ bool load_automation(const std::vector<uint8_t> &xml, std::vector<AutomationEntr
         error = std::string("automation.xml: ") + r.description();
         return false;
     }
+    out.clear();
+    std::map<std::pair<std::string, int>, size_t> at; // (parameter, part) -> index in out (~2000 entries)
     for (auto a : doc.child("AutomationList").children("Automation")) {
         AutomationEntry e;
         e.path = a.attribute("Parameter").as_string();
@@ -651,12 +653,11 @@ bool load_automation(const std::vector<uint8_t> &xml, std::vector<AutomationEntr
             continue;
         // keyed by (parameter, part) like the original: a later entry replaces an earlier one (automation.xml lists
         // Filter Bank/Filter Frequency twice for part 4 - id 1574 should be part 3; the original leaves 1574 unmapped)
-        auto same = std::find_if(out.begin(), out.end(),
-                                 [&](const AutomationEntry &o) { return o.path == e.path && o.part == e.part; });
-        if (same != out.end())
-            *same = e;
-        else
+        auto [it, fresh] = at.try_emplace({e.path, e.part}, out.size());
+        if (fresh)
             out.push_back(e);
+        else
+            out[it->second] = e;
     }
     return !out.empty();
 }

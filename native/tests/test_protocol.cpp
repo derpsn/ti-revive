@@ -169,6 +169,12 @@ TEST(protocol_automation_list)
     AutomationEntry plain;
     plain.path = "NoSlash";
     CHECK(automation_title(dev(), plain) == "NoSlash");
+    // review B8: a second load starts empty, it does not append to (or dedupe against) what `out` held
+    std::vector<AutomationEntry> again = a;
+    CHECK(load_automation(Bytes(xml, xml + strlen(xml)), again, err));
+    CHECK(again.size() == 2 && again[0].id == 10 && again[1].id == 12);
+    std::vector<AutomationEntry> stale = {{99, 1, "Old/Thing"}};
+    CHECK(load_automation(Bytes(xml, xml + strlen(xml)), stale, err) && stale.size() == 2 && stale[0].id == 10);
     std::vector<AutomationEntry> none;
     CHECK(!load_automation(Bytes{'<', 'x'}, none, err) && !err.empty());
     const char *empty = "<AutomationList/>";
