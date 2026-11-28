@@ -182,6 +182,7 @@ private:
     void text(Canvas &c, const std::string &font, const std::string &str, int x, int y, int w, int h,
               const std::string &align, double alpha = 1.0);
     std::vector<std::string> inactive_inputs(const std::string &param, int part) const;
+    Hit with_details(Hit h) const; // depends / inactive of the hit element
     bool hit(const Element &e, int ox, int oy, int inherited, int px, int py, Hit &out, bool include_disabled = false,
              const std::string &cond = std::string(), bool menus_only = false, int slack = 0) const;
     void browser_numbers(Canvas &c, const Element &e, int x, int y);

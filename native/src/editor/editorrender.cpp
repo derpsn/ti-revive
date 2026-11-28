@@ -861,8 +861,6 @@ bool EditorRenderer::hit(const Element &e, int ox, int oy, int inherited, int px
         out.x = x, out.y = y, out.part = pt;
         out.disabled = disabled;
         out.why = disabled ? c : std::string();
-        out.depends = disabled ? std::vector<std::string>() : inactive_inputs(e.get("Parameter"), pt);
-        out.inactive = disabled || !param_active(e.get("Parameter"), pt);
     }
     for (auto &ch : e.children)
         hit(ch, x, y, own_part(e) >= 0 ? own_part(e) : inherited, px, py, out, include_disabled, c, menus_only, slack);
@@ -944,6 +942,18 @@ std::vector<Hit> EditorRenderer::visible_controls(bool include_disabled) const
     return out;
 }
 
+// what only the winner of a hit walk needs (review B21: was evaluated for every element under the point, each of
+// which a later one overrides)
+Hit EditorRenderer::with_details(Hit h) const
+{
+    if (h.element) {
+        const std::string &param = h.element->get("Parameter");
+        h.depends = h.disabled ? std::vector<std::string>() : inactive_inputs(param, h.part);
+        h.inactive = h.disabled || !param_active(param, h.part);
+    }
+    return h;
+}
+
 Hit EditorRenderer::hit_test(int px, int py, bool include_disabled) const
 {
     Hit h;
@@ -954,7 +964,7 @@ Hit EditorRenderer::hit_test(int px, int py, bool include_disabled) const
     if (!h.element)
         for (auto &e : layout_.elements)
             hit(e, 0, 0, -1, px, py, h, include_disabled, std::string(), false, 4);
-    return h;
+    return with_details(h);
 }
 
 Hit EditorRenderer::graph_hit_test(int px, int py) const
@@ -970,7 +980,7 @@ Hit EditorRenderer::graph_hit_test(int px, int py) const
     if (i < 0)
         return Hit{};
     const GraphHandle g = graph_grabs(*h.element, h.x, h.y, h.part)[(size_t)i];
-    return g.xparam.empty() && g.yparam.empty() ? Hit{} : h;
+    return g.xparam.empty() && g.yparam.empty() ? Hit{} : with_details(h);
 }
 
 Hit EditorRenderer::help_hit_test(int px, int py) const
@@ -978,7 +988,7 @@ Hit EditorRenderer::help_hit_test(int px, int py) const
     Hit h;
     for (auto &e : layout_.elements)
         hit(e, 0, 0, -1, px, py, h, true, std::string(), false, -1);
-    return h.element ? h : hit_test(px, py, true);
+    return h.element ? with_details(h) : hit_test(px, py, true);
 }
 
 Hit EditorRenderer::menu_hit_test(int px, int py) const
@@ -986,7 +996,7 @@ Hit EditorRenderer::menu_hit_test(int px, int py) const
     Hit h;
     for (auto &e : layout_.elements)
         hit(e, 0, 0, -1, px, py, h, false, std::string(), true);
-    return h;
+    return with_details(h);
 }
 
 std::pair<int, int> EditorRenderer::menu_anchor(const Hit &h)
