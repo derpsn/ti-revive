@@ -35,15 +35,24 @@ EXEMPT_FILES = {".claude/hooks/private-data.py", "scripts/tests/test_private_dat
 PLACEHOLDER_USERS = {"runner", "user", "u", "you", "me", "name", "username", "shared", "public", "default",
                      "example"}
 NOT_EMAIL_TLDS = {"png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "pdf"}
-ALLOWED_EMAIL = re.compile(r"(noreply|derpsn|^git@github\.com$|@example\.(com|org)$)", re.I)
+# the project identity, GitHub's noreply addresses and placeholders; anchored, so x@derpsn.evil.com still counts
+ALLOWED_EMAIL = re.compile(r"^(?:callmederpsn@proton\.me|[\w.+-]+@users\.noreply\.github\.com|git@github\.com"
+                           r"|[\w.+-]+@example\.(?:com|org))$", re.I)
+# "macOS 10.15.7.1" is a version, not an address (a bare 10.15.7.1 still counts: it could be either)
+VERSION_BEFORE = re.compile(r"(?:macos|os x|version|ver\.?|build|firmware|\bv)\s*$", re.I)
 
 GENERIC = [
     # also under a prefix (/var/home, /mnt/c/Users in WSL, /System/Volumes/Data/Users), not inside a URL
-    ("home folder with a user name", re.compile(r"(?<![\w.:/])(?:/[\w.-]+)*?/home/([a-z_][a-z0-9_.-]*)")),
+    ("home folder with a user name", re.compile(r"(?<![\w.:/])(?:/[\w.-]+)*?/home/([A-Za-z_][\w.-]*)")),
     ("macOS home folder with a user name", re.compile(r"(?<![\w.:/])(?:/[\w.-]+)*?/Users/([A-Za-z][\w.-]*)")),
-    ("Windows home folder with a user name", re.compile(r"\b[A-Za-z]:\\{1,2}Users\\{1,2}([A-Za-z][\w.-]*)", re.I)),
+    ("home folder in a file:// link", re.compile(r"file://(?:/[\w.-]+)*?/(?:home|Users)/([A-Za-z_][\w.-]*)")),
+    ("Windows home folder with a user name", re.compile(r"\b[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}([A-Za-z][\w.-]*)",
+                                                         re.I)),
+    # RFC 1918 and 100.64.0.0/10 (carrier-grade NAT, Tailscale)
     ("private IP address", re.compile(
-        r"(?<![\d.])(?:192\.168|10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}(?![\d.])")),
+        r"(?<![\d.])(?:192\.168|10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7]))"
+        r"\.\d{1,3}\.\d{1,3}(?![\d.])")),
+    ("private IPv6 address", re.compile(r"(?<![\w:])f[cd][0-9a-f]{2}(?::[0-9a-f]{0,4}){1,6}:[0-9a-f]{1,4}(?![\w:])", re.I)),
     ("e-mail address", re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.([A-Za-z]{2,})\b")),
 ]
 
@@ -86,6 +95,9 @@ def find(text, personal):
         for m in rx.finditer(text):
             if name == "e-mail address":
                 if m.group(1).lower() in NOT_EMAIL_TLDS or ALLOWED_EMAIL.search(m.group(0)):
+                    continue
+            elif name == "private IP address":
+                if VERSION_BEFORE.search(text[max(0, m.start() - 12):m.start()]):
                     continue
             elif "IP" not in name and m.group(1).lower() in PLACEHOLDER_USERS:
                 continue

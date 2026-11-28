@@ -102,6 +102,17 @@ class Rules(Base):
         self.assertEqual(self.staged("callmederpsn@proton.me 1+x@users.noreply.github.com a@example.com\n")
                          .returncode, 0)
 
+    def test_more_home_and_address_shapes_block(self):  # audit 2026-11-28 #2, one line per shape
+        for line in ("C:/Users/alice/AppData", "file:///home/alice/log.txt", "/home/Alice/x", "tailnet 100.101.5.7",
+                     "ula fd12:3456:789a::1", "ula fc00:0:0:1::2", "x@derpsn.evil.com", "derpsn.fan@mail.example.net",
+                     "noreply.alice@mail.example.net", "10.15.7.1"):
+            self.assertEqual(self.staged(line + "\n").returncode, 1, line)
+
+    def test_shapes_that_look_private_but_are_not_pass(self):
+        for line in ("100.63.1.1 and 100.128.0.1", "macOS 10.15.7.1", "version 10.0.0.5", "fe80::1 2001:db8::1 the range fc00::/7",
+                     "1+alice@users.noreply.github.com", "file:///home/user/x"):
+            self.assertEqual(self.staged(line + "\n").returncode, 0, line)
+
     def test_personal_word_blocks_case_insensitive(self):
         r = self.staged("written by SecretName\n")
         self.assertEqual(r.returncode, 1)
