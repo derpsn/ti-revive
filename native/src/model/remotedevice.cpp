@@ -448,7 +448,7 @@ bool RemoteDevice::upgrade_single(std::vector<uint8_t> &m, const std::vector<uin
     if (m.size() != 524 || m[0] != 0xF0 || m[6] != 0x10)
         return false;
     uint8_t *p = m.data() + 9;
-    const int from = (int8_t)p[off::VERSION];
+    const int from = p[off::VERSION]; // unsigned: a damaged 0x80.. is no version below 0 (review B4)
     if (from < 8 && page_b.size() != 256)
         return false; // pages C/D cannot be created
     const bool edit_buffer = m[7] == 0;
