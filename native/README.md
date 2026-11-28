@@ -84,5 +84,5 @@ Environment settings for testing:
 | `asiohost` | Windows: load an ASIO driver, list channels, count buffer switches, play a test tone |
 | `nativehost` | minimal VST3 host: states, params, notes, WAV, editor on X11 with click/drag/type/screenshot |
 | `vtirender` | render the editor with cairo and compare it against screenshots of the original |
-| `xclick`, `xtype` | drive the original under Wine/Xvfb |
+| `xclick` | click in the original under Wine/Xvfb (uicompare) |
 | `DecompileAll.java`, `msgsummary.py` | Ghidra headless decompile into `work/`, trace summaries |
