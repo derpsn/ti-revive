@@ -262,6 +262,35 @@ class ClaudeHook(Base):
         cmd = "python3 - <<'EOF'\nprint('the hook checks gh posts; secretname stays local')\nEOF"
         self.assertEqual(self.bash(cmd).returncode, 0)
 
+    def test_no_verify_refused(self):  # audit 2026-11-28 #1: it would skip the git hooks
+        for cmd in ("git commit --no-verify -m x", "git commit -n -m x", "git commit -anm x", "git push --no-verify",
+                    "git -C /tmp/r commit --no-verify -m x", "timeout 30 git push --no-verify origin b"):
+            r = self.bash(cmd)
+            self.assertEqual(r.returncode, 2, cmd)
+            self.assertIn("no-verify", r.stderr)
+
+    def test_no_verify_lookalikes_pass(self):
+        for cmd in ('git commit -m "-n"', "git push -n origin b", 'git commit -m "no --no-verify here"',
+                    "git log --no-verify"):
+            self.assertEqual(self.bash(cmd).returncode, 0, cmd)
+
+    def test_wrapped_commands_are_scanned(self):  # audit 2026-11-28 #1
+        for cmd in ('timeout 30 gh issue comment 1 --body "from secretname"',
+                    'env A=b gh issue comment 1 --body "from secretname"',
+                    'command gh issue comment 1 --body "from secretname"',
+                    '(gh issue comment 1 --body "from secretname")',
+                    'echo $(gh issue comment 1 --body "from secretname")',
+                    'git -C /tmp/r commit -m "from secretname"',
+                    'git -c user.name=x commit -m "from secretname"',
+                    'flock /tmp/l git commit -m "from secretname"',
+                    'flock -w 5 /tmp/l timeout 9 git commit -m "from secretname"',
+                    'bash -c \'gh issue comment 1 --body "from secretname"\''):
+            self.assertEqual(self.bash(cmd).returncode, 2, cmd)
+
+    def test_wrapped_clean_commands_pass(self):
+        self.assertEqual(self.bash('flock /tmp/l git commit -m "tools: fix (audit 1)"').returncode, 0)
+        self.assertEqual(self.bash("timeout 30 gh issue view 41").returncode, 0)
+
     def test_bad_json_passes(self):
         self.assertEqual(self.run_hook(stdin="not json").returncode, 0)
 

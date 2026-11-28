@@ -209,6 +209,19 @@ if ($remove -and (Test-Path $docs)) {
     Remove-Item -Recurse -Force $backup -ErrorAction SilentlyContinue
     Copy-Item -Recurse $docs $backup
 }
+# Access' uninstaller unloads its drivers: with the Virus connected on them that crashed Windows (0xCE in vtimidi.sys,
+# issue #31). Ask to unplug it first, as tirevive-driver.ps1 does; if it stays connected (2 minutes), carry on.
+if ($remove) {
+    . (Join-Path $PSScriptRoot 'tirevive-virusstate.ps1')
+    if (@(Get-AccessBoundVirus (Get-VirusDevices)).Count -gt 0) { # @(): one item has no .Count in PowerShell 5.1
+        $text = "Please unplug the Virus TI's USB cable now.`n`nThe old Access software is removed once the Virus " +
+            "is unplugged. Afterwards plug it back in, and switch the Virus off and on before you use it with TI Revive."
+        if ($Quiet) { Write-Host $text } else { Show-UserMessage $title $text 120 | Out-Null }
+        if (-not (Wait-Until { @(Get-AccessBoundVirus (Get-VirusDevices)).Count -eq 0 } 120 1)) {
+            Write-Host 'the Virus is still connected on the Access driver; removing the Access software anyway'
+        }
+    }
+}
 if ($remove -or $extracted) { # one UAC prompt for both
     $argline = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Elevated"
     if ($remove) { $argline += ' -RemoveAccess' }

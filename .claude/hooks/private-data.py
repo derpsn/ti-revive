@@ -11,7 +11,8 @@ Two layers, one rule set:
               ends up in the public history.
   Claude Code PreToolUse (Bash), JSON on stdin (exit 2 blocks the call): gh posts that never pass through git
               (issue/PR comments, PR and release texts, --body/--body-file/-F/--notes-file, gh api fields) and the
-              message of an inline `git commit -m`.
+              message of an inline `git commit -m`. Wrappers (timeout, env, flock, sh -c, ( ), $( )) are seen through,
+              and `git commit/push --no-verify` is refused, because it would skip the git hooks.
 
 Rules: generic ones below (home folders with a real user name, private IP addresses, e-mail addresses), plus the
 personal words in work/private-patterns.txt (git-ignored, one per line; "re:" starts a regular expression; # starts
@@ -194,13 +195,14 @@ BODY_FLAGS = {"--body", "-b", "--notes", "-n", "--title", "-t", "-m", "--message
 
 
 def segments(command):
-    """The simple commands of a shell line, split at ; & | (quotes respected)."""
-    lex = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+    """The simple commands of a shell line, split at ; & | ( ) and backticks (quotes respected), so the commands
+    inside ( ... ), $( ... ) and `...` count on their own."""
+    lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()`")
     lex.whitespace_split = True
     seg = []
     try:
         for tok in lex:
-            if tok and set(tok) <= set(";&|"):
+            if tok and set(tok) <= set(";&|()`"):
                 if seg:
                     yield seg
                 seg = []
@@ -220,14 +222,94 @@ def read_file(path):
         return ""
 
 
+# Commands that run the command after them: name -> options that take a value, number of positional arguments
+WRAPPERS = {"timeout": ({"-s", "--signal", "-k", "--kill-after"}, 1), "env": ({"-u", "--unset", "-C", "--chdir"}, 0),
+            "command": (set(), 0), "exec": (set(), 0), "nice": ({"-n", "--adjustment"}, 0), "nohup": (set(), 0),
+            "time": (set(), 0), "sudo": ({"-u", "-g", "-h", "-p", "-C"}, 0),
+            "flock": ({"-w", "--timeout", "-E", "--conflict-exit-code"}, 1)}
+SHELLS = {"sh", "bash", "zsh", "dash"}
+# git commit options whose value is the next word (so "-m -n" is a message, not --no-verify)
+COMMIT_VALUE_FLAGS = {"-m", "--message", "-F", "--file", "-C", "--reuse-message", "-c", "--reedit-message", "-t",
+                      "--template", "--author", "--date", "--fixup", "--squash", "--trailer", "--cleanup"}
+
+
+def unwrap(seg):
+    """The command a wrapper (VAR=x, timeout, env, flock, ...) runs; ["sh", "-c", CMD] for flock -c CMD."""
+    while seg:
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", seg[0]):  # VAR=value, also after env
+            seg = seg[1:]
+            continue
+        name = os.path.basename(seg[0])
+        if name not in WRAPPERS:
+            return seg
+        value_opts, positional = WRAPPERS[name]
+        seg = seg[1:]
+        while seg and seg[0].startswith("-") and seg[0] != "-":
+            opt = seg.pop(0)
+            if opt == "--":
+                break
+            if name == "flock" and opt in ("-c", "--command"):
+                return ["sh", "-c", seg[0]] if seg else []
+            if opt in value_opts and seg:
+                seg.pop(0)
+        seg = seg[positional:]
+    return seg
+
+
+def simple_commands(command, depth=0):
+    """Every simple command of a shell line with its wrappers removed, also inside sh -c '...'."""
+    for seg in segments(command):
+        seg = unwrap(seg)
+        if seg and os.path.basename(seg[0]) in SHELLS and "-c" in seg[1:-1]:
+            if depth < 3:
+                yield from simple_commands(seg[seg.index("-c") + 1], depth + 1)
+        elif seg:
+            yield seg
+
+
+def git_subcommand(seg):
+    """(subcommand, its index) of a git command line, past -C DIR, -c KEY=VALUE and other global options."""
+    i = 1
+    while i < len(seg):
+        if seg[i] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace"):
+            i += 2
+        elif seg[i].startswith("-"):
+            i += 1
+        else:
+            return seg[i], i
+    return "", i
+
+
+def skips_hooks(seg):
+    """True for git commit/push with --no-verify (commit: also -n, alone or in a cluster like -anm)."""
+    if not seg or seg[0] != "git":
+        return False
+    sub, i = git_subcommand(seg)
+    if sub not in ("commit", "push"):
+        return False
+    args = iter(seg[i + 1:])
+    for tok in args:
+        if tok == "--":
+            break
+        if tok == "--no-verify":
+            return True
+        if sub != "commit":
+            continue
+        if tok in COMMIT_VALUE_FLAGS:
+            next(args, None)
+        elif re.match(r"^-[A-Za-z]+$", tok):
+            # a cluster ends at its first option with a value (-mn is the message "n")
+            if "n" in re.split(r"[mFCctu]", tok[1:], maxsplit=1)[0]:
+                return True
+    return False
+
+
 def texts_to_check(seg):
     """The texts a gh or git commit command would publish (file contents, not their paths)."""
-    while seg and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", seg[0]):  # leading VAR=value
-        seg = seg[1:]
     if not seg:
         return []
     is_gh = seg[0] == "gh"
-    is_commit = seg[0] == "git" and "commit" in seg[1:3]
+    is_commit = seg[0] == "git" and git_subcommand(seg)[0] == "commit"
     if not (is_gh or is_commit):
         return []
     out = []
@@ -258,10 +340,12 @@ def claude_mode(personal):
         command = json.load(sys.stdin).get("tool_input", {}).get("command", "")
     except (ValueError, AttributeError):
         return 0
-    if not command or not re.search(r"(^|[\s;&|(])(gh|git)\s", command):
+    if not command or not re.search(r"""(^|[\s;&|(`'"])(gh|git)\s""", command):
         return 0
     findings = []
-    for seg in segments(command):
+    for seg in simple_commands(command):
+        if skips_hooks(seg):
+            findings.append("git commit/push --no-verify skips the private-data git hooks; commit without it")
         for text in texts_to_check(seg):
             findings += scan_text(text, personal, " ".join(seg[:2]))
         if seg[:1] != ["gh"] or not any(a in BODY_FILE_FLAGS and b == "-" for a, b in zip(seg, seg[1:])):

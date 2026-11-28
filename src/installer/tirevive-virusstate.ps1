@@ -1,4 +1,4 @@
-# tirevive-virusstate.ps1 - what the Virus TI is bound to during the driver step, dot-sourced by tirevive-driver.ps1.
+# tirevive-virusstate.ps1 - what the Virus TI is bound to, dot-sourced by tirevive-driver.ps1 and tirevive-access.ps1.
 # Why (issue #31, Windows 10 in VirtualBox, Snow): with the Virus connected on Access' drivers, unloading them crashed
 # Windows (bug check 0xCE in vtimidi.sys) during our install, an Access repair and a plain unplug; and the "now:" check
 # ran before Windows had detected the Virus again, so driver.log missed that it came back on VIRUSUSB.
