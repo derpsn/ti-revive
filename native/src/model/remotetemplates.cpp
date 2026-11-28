@@ -142,7 +142,7 @@ std::vector<uint8_t> RemoteTemplates::encode_midi(const std::string &text)
             i++;
             if (i >= s.size() || !isdigit((unsigned char)s[i]))
                 continue;
-            int v = std::max(0, std::min(255, atoi(s.c_str() + i)));
+            const int v = (int)std::clamp(std::strtol(s.c_str() + i, nullptr, 10), 0L, 255L); // atoi overflows
             put(v, v >> 4);
             while (i < s.size() && isdigit((unsigned char)s[i]))
                 i++;

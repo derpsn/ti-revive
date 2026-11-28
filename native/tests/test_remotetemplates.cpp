@@ -196,6 +196,7 @@ TEST(remote_templates_midi_string)
     CHECK(RemoteTemplates::encode_midi("b0,5;XXX") == enc);       // lower case, punctuation, a run of X = one value
     CHECK(RemoteTemplates::encode_midi("%176 %5 v") == enc);      // decimal bytes
     CHECK(RemoteTemplates::encode_midi("%300")[0] == 0x0F && RemoteTemplates::encode_midi("%300")[1] == 0x0F); // 255
+    CHECK(RemoteTemplates::encode_midi("%99999999999999999999")[0] == 0x0F); // too long for an int: still 255 (review B6)
     CHECK(RemoteTemplates::encode_midi("ff")[0] == 0x0F && RemoteTemplates::encode_midi("ff")[1] == 0x0F); // = value
     auto empty = RemoteTemplates::encode_midi("");
     CHECK(empty[0] == 0x0E && empty[1] == 0x0F && empty[2] == 0); // the default record's string

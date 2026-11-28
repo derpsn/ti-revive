@@ -232,3 +232,35 @@ TEST(model_encode_refuses_bytes_above_7f)
     CHECK(!load_transport(t, "200", "5"));                               // a fixed byte that is no MIDI byte
     CHECK(!load_transport(t, "300", "5"));
 }
+
+// review B3/B6: numbers from the XML are clamped to what the code can use: shift 0..7 and mask 0..0xFF (a larger
+// shift is undefined behaviour in update_dump), min/max/defaults small enough for the randomizer's arithmetic, and
+// a number too long for an int does not wrap around
+TEST(model_xml_numbers_are_bounded)
+{
+    static const char *xml = R"(<?xml version="1.0"?>
+<Remotedevice device="T" version="1">
+ <ParameterSets><ParameterSet name="Osc">
+  <Parameter name="Shape" minValue="-99999999999" maxValue="99999999999" defaultValue="99999999999" part="all"/>
+  <Parameter name="Chan" minValue="0" maxValue="15" valuelist="Chan" part="all"/>
+ </ParameterSet></ParameterSets>
+ <Valuelists><Valuelist name="Chan"><Entry index="0">01</Entry><Entry index="1">02</Entry></Valuelist></Valuelists>
+ <MIDIMessages><MIDIMessage id="D" name="D">
+  <byte index="0" content="Osc/Shape" mask="4096" shift="40"/>
+  <byte index="1" content="Osc/Shape" mask="-7" shift="-3"/>
+ </MIDIMessage></MIDIMessages>
+</Remotedevice>)";
+    RemoteDevice d;
+    std::string err;
+    CHECK(d.load(Bytes(xml, xml + strlen(xml)), err));
+    const Parameter *p = d.find("Osc/Shape");
+    CHECK(p && p->min == -RemoteDevice::NUM_LIMIT && p->max == RemoteDevice::NUM_LIMIT && p->def == RemoteDevice::NUM_LIMIT);
+    const MidiMessage *m = d.message("D");
+    CHECK(m && m->bytes.size() == 2);
+    if (m && m->bytes.size() == 2) {
+        CHECK(m->bytes[0].mask == 0xFF && m->bytes[0].shift == 7);
+        CHECK(m->bytes[1].mask == -1 && m->bytes[1].shift == 0); // negative = no mask
+    }
+    CHECK_EQ(d.value_of("Osc/Shape", "99999999999"), -1); // does not fit an int: no value
+    CHECK_EQ(d.value_of("Osc/Chan", "03"), 2);              // a 1-based numbered list
+}

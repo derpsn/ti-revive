@@ -9,10 +9,12 @@
 
 namespace vti {
 
-static int num(const pugi::xml_node &n, const char *a, int def)
+// an XML number clamped to lo..hi (atoi has undefined behaviour beyond int; the real file stays within 0..523)
+static int num(const pugi::xml_node &n, const char *a, int def, long lo = -RemoteDevice::NUM_LIMIT,
+               long hi = RemoteDevice::NUM_LIMIT)
 {
     pugi::xml_attribute at = n.attribute(a);
-    return at ? std::atoi(at.value()) : def;
+    return at ? (int)std::clamp(std::strtol(at.value(), nullptr, 10), lo, hi) : def;
 }
 
 const Valuelist::Entry *Valuelist::find(int v) const
@@ -116,8 +118,8 @@ bool RemoteDevice::load(const std::vector<uint8_t> &xml, std::string &error)
             mb.index = num(b, "index", 0);
             mb.content = b.attribute("content").value();
             mb.tag = num(b, "tag", -1);
-            mb.mask = num(b, "mask", -1);
-            mb.shift = num(b, "shift", 0);
+            mb.mask = num(b, "mask", -1, -1, 0xFF); // negative = no mask; a shift beyond 7 is undefined in update_dump
+            mb.shift = num(b, "shift", 0, 0, 7);
             mb.part = num(b, "part", -1);
             mb.method = b.attribute("method").value();
             mb.start = num(b, "startindex", -1);
@@ -522,11 +524,11 @@ int RemoteDevice::value_of(const std::string &path, const std::string &text) con
                 return vl->second.value_of(e);
     char *end = nullptr;
     long v = strtol(text.c_str(), &end, 10);
-    if (end && *end == 0 && !text.empty()) {
+    if (end && *end == 0 && !text.empty() && v > -NUM_LIMIT && v < NUM_LIMIT) {
         // numbered lists show 1-based numbers ("01" = MIDI channel 1 = value 0) when the list's first text is "1"/"01"
         if (vl != valuelists.end() && !vl->second.entries.empty()) {
             const auto &first = vl->second.entries.front();
-            if (atoi(first.text.c_str()) == 1 && first.index == 0)
+            if (strtol(first.text.c_str(), nullptr, 10) == 1 && first.index == 0)
                 return (int)v - 1;
         }
         return (int)v;

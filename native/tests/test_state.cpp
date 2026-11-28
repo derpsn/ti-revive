@@ -1,6 +1,7 @@
 // project state container, editor-only records, meta parameter mapping
 #include "check.h"
 #include "model/state.h"
+#include <cmath>
 #include <cstring>
 
 using namespace vti;
@@ -319,4 +320,22 @@ TEST(state_unread_project_kept)
     CHECK(!u.saved(now));
     u.keep({}, now); // nothing came: nothing to keep
     CHECK(!u.saved(now));
+}
+
+// review B3: a factor from the XML that is huge, tiny or not a number gives a bounded value, not an int overflow
+TEST(meta_mapping_bounded)
+{
+    const int lim = (int)RemoteDevice::NUM_LIMIT;
+    MetaClient big;
+    big.a = 1e300;
+    CHECK_EQ(meta_to_client(big, 5), lim);
+    CHECK_EQ(meta_to_client(big, -5), -lim);
+    MetaClient tiny;
+    tiny.a = 1e-300;
+    int mv = 0;
+    CHECK(client_to_meta(tiny, 3, mv) && mv == lim);
+    MetaClient nan;
+    nan.a = std::nan("");
+    CHECK_EQ(meta_to_client(nan, 5), 0);
+    CHECK(!client_to_meta(nan, 5, mv));
 }
