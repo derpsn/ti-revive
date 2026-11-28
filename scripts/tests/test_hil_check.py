@@ -187,6 +187,13 @@ class Folder(unittest.TestCase):
                 self.assertRegex(text, r"(?i)(run|start)_?item\s+['\"]?%s['\"]?\s+%d\b" % (name, item["seconds"]),
                                  "%s: %s %d s" % (runner, name, item["seconds"]))
 
+    def test_runners_without_python_say_not_graded(self):  # audit 2026-11-28 #3: never "nothing failed" ungraded
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        for runner, branch in (("hil-win.ps1", r"\} else \{\s*\n(.*\n){0,3}?.*NOT GRADED.*\n(.*\n){0,3}?\s*exit 2"),
+                               ("hil-mac.command", r"\nelse\s*\n(.*\n){0,3}?.*NOT GRADED.*\n(.*\n){0,3}?\s*finish 2")):
+            with open(os.path.join(here, runner), encoding="utf-8") as f:
+                self.assertRegex(f.read(), branch, runner)
+
 
 if __name__ == "__main__":
     unittest.main()

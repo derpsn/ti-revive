@@ -75,7 +75,9 @@ if python3 -c 'import sys; sys.exit(sys.version_info < (3, 6))' 2>/dev/null; the
         say "H1 silent? System Settings > Privacy & Security > Microphone: allow Terminal, then run this again"
     fi
 else
-    say "no Python 3 here: send the folder $out to be graded"
+    # ungraded is not a pass: a silent Virus would otherwise read as "nothing failed"
+    say "NOT GRADED: no Python 3 here, $fails step(s) failed while playing; send the folder $out to be graded"
+    finish 2
 fi
 say "$([ $fails -eq 0 ] && echo "done, nothing failed" || echo "$fails step(s) failed") - results in $out"
 finish $((fails > 0))
