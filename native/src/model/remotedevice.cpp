@@ -9,10 +9,12 @@
 
 namespace vti {
 
-static int num(const pugi::xml_node &n, const char *a, int def)
+// an XML number clamped to lo..hi (atoi has undefined behaviour beyond int; the real file stays within 0..523)
+static int num(const pugi::xml_node &n, const char *a, int def, long lo = -RemoteDevice::NUM_LIMIT,
+               long hi = RemoteDevice::NUM_LIMIT)
 {
     pugi::xml_attribute at = n.attribute(a);
-    return at ? std::atoi(at.value()) : def;
+    return at ? (int)std::clamp(std::strtol(at.value(), nullptr, 10), lo, hi) : def;
 }
 
 const Valuelist::Entry *Valuelist::find(int v) const
@@ -116,8 +118,8 @@ bool RemoteDevice::load(const std::vector<uint8_t> &xml, std::string &error)
             mb.index = num(b, "index", 0);
             mb.content = b.attribute("content").value();
             mb.tag = num(b, "tag", -1);
-            mb.mask = num(b, "mask", -1);
-            mb.shift = num(b, "shift", 0);
+            mb.mask = num(b, "mask", -1, -1, 0xFF); // negative = no mask; a shift beyond 7 is undefined in update_dump
+            mb.shift = num(b, "shift", 0, 0, 7);
             mb.part = num(b, "part", -1);
             mb.method = b.attribute("method").value();
             mb.start = num(b, "startindex", -1);
@@ -125,6 +127,11 @@ bool RemoteDevice::load(const std::vector<uint8_t> &xml, std::string &error)
             // indexes address the message (the largest, a single dump, has 524 bytes): a damaged file is refused
             if (mb.index < 0 || mb.index > 1023 || (!mb.method.empty() && mb.start < 0)) {
                 error = "remotedevice.xml: " + mm.id + ": byte index out of range";
+                return false;
+            }
+            // a fixed byte is a 7-bit data byte or SysEx framing (F0/F7 in dump headers)
+            if (mb.tag > 0x7F && mb.tag != 0xF0 && mb.tag != 0xF7) {
+                error = "remotedevice.xml: " + mm.id + ": byte tag out of range";
                 return false;
             }
             for (auto p : b.children("parameter"))
@@ -189,7 +196,7 @@ size_t RemoteDevice::encode_into(const std::string &path, int value, int part, u
     int channel = part & 15;
     for (auto &b : m->bytes) {
         const std::string &c = b.content;
-        uint8_t v;
+        int v; // data bytes must fit 7 bits, else the message is not built (a malformed one never reaches the wire)
         if (c == "controller")
             v = (uint8_t)(0xB0 | channel);
         else if (c == "polypressure")
@@ -199,18 +206,20 @@ size_t RemoteDevice::encode_into(const std::string &path, int value, int part, u
         else if (c == "sysexend")
             v = 0xF7;
         else if (c == "byte")
-            v = (uint8_t)(b.tag < 0 ? 0 : b.tag);
+            v = b.tag < 0 ? 0 : b.tag;
         else if (c == "deviceid")
-            v = (uint8_t)device_id;
+            v = device_id;
         else if (c == "part")
-            v = (uint8_t)part;
+            v = part;
         else if (c == "controllerid")
-            v = (uint8_t)ctrl;
+            v = ctrl;
         else if (c == "value")
-            v = (uint8_t)(value & 0x7F);
+            v = value & 0x7F;
         else
             return 0;
-        out[n++] = v;
+        if (v < 0 || (v > 0x7F && c != "controller" && c != "polypressure" && c != "sysexstart" && c != "sysexend"))
+            return 0;
+        out[n++] = (uint8_t)v;
     }
     return n;
 }
@@ -439,7 +448,7 @@ bool RemoteDevice::upgrade_single(std::vector<uint8_t> &m, const std::vector<uin
     if (m.size() != 524 || m[0] != 0xF0 || m[6] != 0x10)
         return false;
     uint8_t *p = m.data() + 9;
-    const int from = (int8_t)p[off::VERSION];
+    const int from = p[off::VERSION]; // unsigned: a damaged 0x80.. is no version below 0 (review B4)
     if (from < 8 && page_b.size() != 256)
         return false; // pages C/D cannot be created
     const bool edit_buffer = m[7] == 0;
@@ -515,11 +524,11 @@ int RemoteDevice::value_of(const std::string &path, const std::string &text) con
                 return vl->second.value_of(e);
     char *end = nullptr;
     long v = strtol(text.c_str(), &end, 10);
-    if (end && *end == 0 && !text.empty()) {
+    if (end && *end == 0 && !text.empty() && v > -NUM_LIMIT && v < NUM_LIMIT) {
         // numbered lists show 1-based numbers ("01" = MIDI channel 1 = value 0) when the list's first text is "1"/"01"
         if (vl != valuelists.end() && !vl->second.entries.empty()) {
             const auto &first = vl->second.entries.front();
-            if (atoi(first.text.c_str()) == 1 && first.index == 0)
+            if (strtol(first.text.c_str(), nullptr, 10) == 1 && first.index == 0)
                 return (int)v - 1;
         }
         return (int)v;
@@ -633,6 +642,8 @@ bool load_automation(const std::vector<uint8_t> &xml, std::vector<AutomationEntr
         error = std::string("automation.xml: ") + r.description();
         return false;
     }
+    out.clear();
+    std::map<std::pair<std::string, int>, size_t> at; // (parameter, part) -> index in out (~2000 entries)
     for (auto a : doc.child("AutomationList").children("Automation")) {
         AutomationEntry e;
         e.path = a.attribute("Parameter").as_string();
@@ -642,12 +653,11 @@ bool load_automation(const std::vector<uint8_t> &xml, std::vector<AutomationEntr
             continue;
         // keyed by (parameter, part) like the original: a later entry replaces an earlier one (automation.xml lists
         // Filter Bank/Filter Frequency twice for part 4 - id 1574 should be part 3; the original leaves 1574 unmapped)
-        auto same = std::find_if(out.begin(), out.end(),
-                                 [&](const AutomationEntry &o) { return o.path == e.path && o.part == e.part; });
-        if (same != out.end())
-            *same = e;
-        else
+        auto [it, fresh] = at.try_emplace({e.path, e.part}, out.size());
+        if (fresh)
             out.push_back(e);
+        else
+            out[it->second] = e;
     }
     return !out.empty();
 }

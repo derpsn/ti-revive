@@ -29,6 +29,7 @@ extern char **environ;
 #include "model/utf8.h"
 #include "editor/editormenus.h"
 #include "editor/dragsend.h"
+#include "editor/framepace.h"
 #include "editor/textfield.h"
 #include "editor/popupmenu.h"
 #include "popupwindow.h"
@@ -45,7 +46,10 @@ extern char **environ;
 #if SMTG_OS_LINUX
 // server-side (X pixmap) copies of the bitmaps: VSTGUI keeps CPU image surfaces and uploads their pixels on every
 // draw into the X back buffer (~67 ms per full repaint on a real X server / XWayland vs ~8 ms on Xvfb). Cairo::Bitmap
-// has no way to wrap another surface, so its members are opened up for this file only.
+// takes another surface in its constructor, but reads the size from it with cairo_image_surface_get_width, which is 0
+// for an X surface, and has no setter for it: its members are opened up for this file only, and only `size` is
+// written through that (review B34: everything else goes through the public API). Dropping this needs a VSTGUI
+// change (a size setter, or the constructor taking the size), not made here.
 #define private public
 #include "vstgui/lib/platform/linux/cairobitmap.h"
 #undef private
@@ -69,9 +73,16 @@ static void open_url(const char *url)
 #else
     const char *tool = SMTG_OS_MACOS ? "open" : "xdg-open";
     char *argv[] = {const_cast<char *>(tool), const_cast<char *>(url), nullptr};
+    // reaped on a later call, not by a detached thread that could still run when the host unloads the plug-in
+    // (review B34); shortcut: the last child stays a zombie until the next link or the host's exit (open/xdg-open
+    // end within moments), a reaping SIGCHLD handler would be the host's business
+    static std::vector<pid_t> children; // UI thread only
+    children.erase(std::remove_if(children.begin(), children.end(),
+                                  [](pid_t p) { return waitpid(p, nullptr, WNOHANG) != 0; }), // gone or reaped
+                   children.end());
     pid_t pid;
     if (posix_spawnp(&pid, tool, nullptr, nullptr, argv, environ) == 0)
-        std::thread([pid] { waitpid(pid, nullptr, 0); }).detach(); // reap it (open/xdg-open return quickly)
+        children.push_back(pid);
 #endif
 }
 
@@ -162,7 +173,7 @@ static SharedPointer<CBitmap> server_bitmap(CFrame *frame, CBitmap *bmp)
     if (!frame || !bmp || getenv("VTI_NATIVE_NO_PIXMAPS"))
         return nullptr;
     auto *cb = dynamic_cast<Cairo::Bitmap *>(bmp->getPlatformBitmap().get());
-    if (!cb || !cb->surface || cairo_surface_get_type(cb->surface) != CAIRO_SURFACE_TYPE_IMAGE)
+    if (!cb || !cb->getSurface() || cairo_surface_get_type(cb->getSurface()) != CAIRO_SURFACE_TYPE_IMAGE)
         return nullptr;
     if (!ref) {
         auto *conn = X11::RunLoop::instance().getXcbConnection();
@@ -185,7 +196,7 @@ static SharedPointer<CBitmap> server_bitmap(CFrame *frame, CBitmap *bmp)
             return nullptr;
         ref = cairo_xcb_surface_create(conn, win, vt, 1, 1);
     }
-    int w = cairo_image_surface_get_width(cb->surface), h = cairo_image_surface_get_height(cb->surface);
+    int w = cairo_image_surface_get_width(cb->getSurface()), h = cairo_image_surface_get_height(cb->getSurface());
     cairo_surface_t *srv = cairo_surface_create_similar(ref, CAIRO_CONTENT_COLOR_ALPHA, w, h);
     if (cairo_surface_status(srv) != CAIRO_STATUS_SUCCESS) {
         cairo_surface_destroy(srv);
@@ -193,14 +204,13 @@ static SharedPointer<CBitmap> server_bitmap(CFrame *frame, CBitmap *bmp)
     }
     cairo_t *cr = cairo_create(srv);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_surface(cr, cb->surface, 0, 0);
+    cairo_set_source_surface(cr, cb->getSurface(), 0, 0);
     cairo_paint(cr);
     cairo_destroy(cr);
     cairo_surface_flush(srv);
-    auto nb = makeOwned<Cairo::Bitmap>();
-    nb->surface = Cairo::SurfaceHandle(srv);
-    nb->size = CPoint(w, h);
-    nb->scaleFactor = cb->scaleFactor;
+    auto nb = makeOwned<Cairo::Bitmap>(Cairo::SurfaceHandle(srv));
+    nb->size = CPoint(w, h); // the one private member used (see the #define above)
+    nb->setScaleFactor(cb->getScaleFactor());
     return makeOwned<CBitmap>(nb);
 }
 #endif
@@ -1111,13 +1121,13 @@ public:
                         auto it = deps_.rects.find(p);
                         if (it != deps_.rects.end())
                             for (auto &rc : it->second)
-                                invalidRect(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
+                                mark(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
                     }
                     if (plugin_->lcd_changed())
-                        invalidRect(CRect(200, 470, 560, 512));
+                        mark(CRect(200, 470, 560, 512));
                 }
             } else if (plugin_->lcd_changed() && !partial_)
-                invalidRect(CRect(200, 470, 560, 512)); // the LCD only
+                mark(CRect(200, 470, 560, 512)); // the LCD only
             else if (!plugin_->meters_pending())
                 preload_step();
             // the MIDI activity meters every tick, also while automation changes values each tick (they were the
@@ -1136,9 +1146,11 @@ public:
                             area.unite(rc);
                     }
                 if (!area.isEmpty())
-                    invalidRect(area);
+                    mark(area);
             }
         }, 50);
+        // paced redraws (framepace.h, #37 E607): the areas waiting for the next frame go out once the pacer allows
+        frame_timer_ = makeOwned<CVSTGUITimer>([this](CVSTGUITimer *) { flush_dirty(); }, 16);
     }
 
     // idle ticks: decode the skin's bitmaps ahead of use (Linux: and upload them as pixmaps), so the first visit of a
@@ -1150,9 +1162,7 @@ public:
             std::function<void(const Element &)> walk = [&](const Element &e) {
                 for (auto &kv : e.attr)
                     if (kv.second.size() > 4) {
-                        std::string ext = kv.second.substr(kv.second.size() - 4);
-                        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char ch) { return (char)tolower(ch); });
-                        if (ext == ".png")
+                        if (vti::ascii_lower(kv.second.substr(kv.second.size() - 4)) == ".png")
                             names.insert(kv.second);
                     }
                 for (auto &c : e.children)
@@ -1413,6 +1423,10 @@ public:
         {
             long us = (long)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
             plugin_->diag.draw_us += us;
+            for (long m = plugin_->diag.draw_max_us.load(); us > m && !plugin_->diag.draw_max_us.compare_exchange_weak(m, us);) {
+            }
+            const int64_t end = now_us();
+            pacer_.drawn(end - us, end); // the next frame waits for twice this frame's cost
             (r.getWidth() >= getViewSize().getWidth() - 1 ? plugin_->diag.full_draws : plugin_->diag.part_draws)++;
         }
         if (env_drawtime())
@@ -1575,7 +1589,7 @@ public:
         // filter / envelope displays: drag a handle or a line segment like the original's KEnvelope (E371, E372) -
         // relative, the handle stays under the mouse, Shift = 4x finer; Ctrl+click puts the grabbed parameters back
         // to the middle (resonance to 0)
-        if (e.type == "ADSTREnvelope" || (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0)) {
+        if (e.type == "ADSTREnvelope" || EditorRenderer::is_filter_display(e)) {
             const auto hs = renderer_.graph_grabs(e, h.x, h.y, h.part);
             graph_handle_ = renderer_.graph_grab(e, h.x, h.y, h.part, (int)event.mousePosition.x,
                                                  (int)event.mousePosition.y);
@@ -1740,11 +1754,11 @@ public:
             for (const std::string *pp : {&gh.xparam, &gh.yparam})
                 if (!pp->empty())
                     drag_set(*pp, drag_.part, renderer_.graph_value(e, drag_.x, drag_.y, drag_.part, *pp, tx, ty));
-            invalidRect(CRect(drag_.x - 4, drag_.y - 4, drag_.x + e.w + 4, drag_.y + e.h + 4));
+            mark(CRect(drag_.x - 4, drag_.y - 4, drag_.x + e.w + 4, drag_.y + e.h + 4));
             for (auto &other : plugin_->take_changed()) // the knobs of these parameters move along
                 for (auto &rc : shown_rects(other))
-                    invalidRect(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
-            invalidRect(CRect(200, 470, 560, 512));
+                    mark(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
+            mark(CRect(200, 470, 560, 512));
             partial_ = true;
             event.consumed = true;
             return;
@@ -1802,12 +1816,12 @@ public:
         if (drag_rects_.empty())
             drag_rects_ = shown_rects(param);
         for (auto &rc : drag_rects_) // every control of this parameter (knob + value display ...)
-            invalidRect(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
+            mark(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
         for (auto &other : plugin_->take_changed()) // linked parameters (LFO/filter links) move along
             if (other != param)
                 for (auto &rc : shown_rects(other))
-                    invalidRect(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
-        invalidRect(CRect(200, 470, 560, 512));
+                    mark(CRect(rc[0] - 2, rc[1] - 2, rc[0] + rc[2] + 2, rc[1] + rc[3] + 2));
+        mark(CRect(200, 470, 560, 512));
         partial_ = true;
         event.consumed = true;
     }
@@ -2246,7 +2260,7 @@ private:
     // with the knob around them)
     static std::string help_key(const Element &e)
     {
-        if (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0)
+        if (EditorRenderer::is_filter_display(e))
             return "VirusControl/Filter Display";
         if (e.type == "ADSTREnvelope")
             return "VirusControl/Envelope Display";
@@ -3126,10 +3140,7 @@ private:
         auto *fs = CNewFileSelector::create(getFrame(), CNewFileSelector::kSelectSaveFile);
         if (!fs)
             return;
-        char stamp[32];
-        const time_t now = time(nullptr);
-        strftime(stamp, sizeof stamp, "%Y-%m-%d-%H%M", localtime(&now));
-        const std::string name = std::string("TI-Revive-logs-") + stamp + ".txt";
+        const std::string name = "TI-Revive-logs-" + vti::cc::local_time("%Y-%m-%d-%H%M", time(nullptr)) + ".txt";
         fs->setTitle("Save logs for a bug report");
         fs->setDefaultExtension(CFileExtension("Text", "txt"));
 #if defined(_WIN32) || defined(__APPLE__)
@@ -3172,6 +3183,32 @@ private:
     std::map<std::string, SharedPointer<CBitmap>> bitmaps_;
     VstguiCanvas canvas_;
     SharedPointer<CVSTGUITimer> timer_;
+    SharedPointer<CVSTGUITimer> frame_timer_; // 16 ms: draws what waits for the pacer (flush_dirty)
+    vti::FramePacer pacer_;
+    vti::DirtyRects dirty_;
+    static int64_t now_us()
+    {
+        return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    }
+    // a partial repaint: collected and drawn with the next frame the pacer allows (#37 E607: a repaint per mouse move
+    // kept a slow Mac's main thread busy and Logic got fewer values); the values themselves went out already
+    void mark(const CRect &r)
+    {
+        dirty_.add((int)std::floor(r.left), (int)std::floor(r.top), (int)std::ceil(r.right), (int)std::ceil(r.bottom));
+        flush_dirty();
+    }
+    void flush_dirty()
+    {
+        if (dirty_.empty())
+            return;
+        if (!pacer_.due(now_us())) {
+            plugin_->diag.paced++; // the log shows how often a slow machine waits (#37)
+            return;
+        }
+        for (const auto &d : dirty_.take())
+            invalidRect(CRect(d.x0, d.y0, d.x1, d.y1));
+    }
     Hit drag_;
     bool partial_ = false;
     std::vector<std::array<int, 4>> drag_rects_;
@@ -3186,7 +3223,7 @@ private:
 
 // the user's size choice, kept for every editor (not per project): <plug-in folder>/ui-zoom ("1.5");
 // VTI_NATIVE_ZOOM overrides it (tests)
-static std::string zoom_file() { return vti::cc::plugin_dir() + "/ui-zoom"; }
+static std::string zoom_file() { return vti::cc::plugin_file("ui-zoom"); } // empty without a plug-in folder
 
 static double load_zoom()
 {

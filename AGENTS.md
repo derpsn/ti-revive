@@ -58,9 +58,8 @@ The findings are free to use elsewhere; the maintainers would be happy about a m
 | `findings/log/` | the maintainers' dated working log (newest month first), run IDs and details; older logs archived there |
 | `native/` | **the plug-in since 0.8.0**: "TI Revive" (VST3, all platforms) and the Windows ASIO driver "TI Revive Audio"; `native/docs/architecture.md`, `native/docs/protocol.md` (timing, stamp clock), `native/docs/formats.md` |
 | `src/broker/` | device access + broker: owns the Virus' USB interfaces, serves plug-in clients (WinUSB on Windows, libusb on macOS/Linux) |
-| `src/wrapper/` | the classic Windows plug-in of 0.7.x (emulation of the Access driver interface `vtiemu`, VST3 wrapper, ASIO wrapper); not shipped since 0.8.0, kept for reference |
+| `src/wrapper/` | what is left of the 0.7.x Windows plug-in: the wrapper that runs the original under Wine (emulation of the Access driver interface `vtiemu`), kept for `scripts/latency-wine.sh` and `native/tools/uicompare`; not shipped since 0.8.0 |
 | `src/inf/`, `src/installer/` | Windows driver package (WinUSB) and MSI |
-| `src/mac/` | macOS, the classic 0.5-0.7.x path (not shipped since 0.8.0, kept for reference): `libvirususb/` (replacement libVirusUSB), `bridge/` (VST3/AU bridge; since 0.8.0 the native plug-in is the VST3 and the Audio Unit), `helper/` (Rosetta host of the original plug-in) |
 | `src/installer-mac/` | macOS package and helper scripts (driver conflicts, Access installer) |
 | `scripts/` | diagnostics (`tirevive-usbinfo.ps1`), capture/decode tools, VM and build scripts |
 
@@ -82,11 +81,10 @@ The findings are free to use elsewhere; the maintainers would be happy about a m
 
 ## Building and checking
 
-- Windows parts: cross-compile on Linux with mingw-w64: `make -C src/broker`, `make -C src/wrapper`. MSI: WiX on
+- Windows parts: cross-compile on Linux with mingw-w64: `make -C src/broker` (`make -C src/wrapper`: the Wine wrapper and the test host `vtihost`, measurements only). MSI: WiX on
   Windows (`src/installer/build.ps1`).
 - macOS parts: on a Mac, the broker with `make -C src/broker mac` and the plug-in as below; the package with
-  `scripts/mac-build-release.sh <repo> <version>`. (`scripts/mac-build-bridge.sh` builds the 0.7.x bridge and
-  Rosetta helper, for reference only.)
+  `scripts/mac-build-release.sh <repo> <version>`.
 - Linux: the broker builds with `make -C src/broker` (libusb).
 - Native plug-in (all platforms): `git submodule update --init --recursive native/external/vst3sdk`, then
   `cmake -S native -B build-native && cmake --build build-native && ctest --test-dir build-native` (MSVC on Windows,

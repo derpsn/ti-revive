@@ -23,8 +23,7 @@ inline std::vector<std::string> other_virus_drivers(const std::string &midi_driv
         if (dir.empty() || !fs::is_directory(u8path(dir), ec))
             return;
         for (fs::directory_iterator it(u8path(dir), ec), end; !ec && it != end; it.increment(ec)) {
-            std::string n = u8str(it->path().filename()); // UTF-8, never throws (#35)
-            std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+            const std::string n = ascii_lower(u8str(it->path().filename())); // UTF-8, never throws (#35)
             if (n.find("aura") != std::string::npos && n.find("virus") != std::string::npos)
                 aura = true;
             else if (n.rfind("virus ti midi driver", 0) == 0 || n.rfind("de.access-music.virus_ti", 0) == 0)

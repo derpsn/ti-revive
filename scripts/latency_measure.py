@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """latency_measure.py - how long a note takes through a plug-in, and what its stamp says on the wire (E400, #30).
 
-The test hosts (src/wrapper/vtihost.cpp: the original; native/tools/nativehost.cpp: TI Revive) play notes on a fixed
+The test hosts (native/tools/vtihost.cpp: the original; native/tools/nativehost.cpp: TI Revive) play notes on a fixed
 grid and record the plug-in's output, so the delay from the note's frame to the first sound is exact, without any
 audio interface or hands. With VTI_LIVE=alt the odd seconds are flagged as played live: class 1 below.
 

@@ -18,8 +18,11 @@ static uint32_t color(const char *hex, uint32_t def)
     return (uint32_t)strtoul(hex, nullptr, 16);
 }
 
-static void parse_children(const pugi::xml_node &parent, int ox, int oy, std::vector<SkinNode> &out)
+// nesting deeper than 64 levels is not read (the real layout is 8 deep; review B22: no recursion to stack overflow)
+static void parse_children(const pugi::xml_node &parent, int ox, int oy, std::vector<SkinNode> &out, int depth = 0)
 {
+    if (depth >= 64)
+        return;
     for (auto n : parent.children()) {
         std::string tag = n.name();
         if (tag != "container" && tag != "control")
@@ -39,7 +42,7 @@ static void parse_children(const pugi::xml_node &parent, int ox, int oy, std::ve
         s.background = skin_bitmap_name(n.attribute("background").as_string());
         s.value = n.attribute("value").as_int();
         if (s.container)
-            parse_children(n, s.x, s.y, s.children);
+            parse_children(n, s.x, s.y, s.children, depth + 1);
         out.push_back(std::move(s));
     }
 }

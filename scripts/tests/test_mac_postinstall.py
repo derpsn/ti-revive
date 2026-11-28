@@ -15,8 +15,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 POSTINSTALL = os.path.join(HERE, "..", "..", "src", "installer-mac", "scripts", "postinstall")
 
 
-def run(console_user, libusb):
-    """Run postinstall from a temp folder (with the libusb marker if `libusb`); return (exit code, command log)."""
+def run(console_user, libusb, bootstrap_fails=False):
+    """Run postinstall from a temp folder (with the libusb marker if `libusb`); return (exit code, command log).
+    rm, mkdir and touch are stubbed too, so the script never deletes anything of this machine."""
     d = tempfile.mkdtemp()
     try:
         shutil.copy(POSTINSTALL, os.path.join(d, "postinstall"))
@@ -25,9 +26,11 @@ def run(console_user, libusb):
         bin_ = os.path.join(d, "bin")
         os.mkdir(bin_)
         log = os.path.join(d, "log")
-        stubs = {"stat": f'echo "{console_user}"', "id": 'echo 501', "launchctl": f'echo "launchctl $*" >> "{log}"',
-                 "killall": "true", "pkill": "true", "sleep": "true", "chown": "true", "install": "true",
-                 "find": "true"}
+        fail = '[ "$1" != bootstrap ]' if bootstrap_fails else "true"
+        stubs = {"stat": f'echo "{console_user}"', "id": 'echo 501',
+                 "launchctl": f'echo "launchctl $*" >> "{log}"; {fail}',
+                 "killall": "true", "pkill": "true", "sleep": "true", "chown": "true", "chmod": "true",
+                 "install": "true", "find": "true", "rm": "true", "mkdir": "true", "touch": "true"}
         for name, body in stubs.items():
             p = os.path.join(bin_, name)
             with open(p, "w") as f:
@@ -48,6 +51,18 @@ class MacPostinstall(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertNotIn("bootout system", out)  # the service is left as it is
         self.assertIn("log in", out.lower())
+
+    # audit 5: a service launchd refused must fail the install, after one retry, not report success
+    def test_libusb_bootstrap_failure_is_retried_then_fails(self):
+        code, out = run("alice", libusb=True, bootstrap_fails=True)
+        self.assertNotEqual(code, 0)
+        self.assertEqual(out.count("launchctl bootstrap system"), 2)
+        self.assertIn("could not start", out)
+
+    def test_libusb_bootstrap_success(self):
+        code, out = run("alice", libusb=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.count("launchctl bootstrap system"), 1)
 
     def test_normal_package_without_a_console_user_still_succeeds(self):
         code, _ = run("root", libusb=False)

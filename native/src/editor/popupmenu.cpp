@@ -346,15 +346,16 @@ PopupCascade::Result PopupCascade::key(Key k)
         return res;
     settle(levels(), res.dirty); // keys act on the menus shown, at once
     const int top = levels() - 1;
-    PopupMenu &m = menus_[top];
-    const bool sub = m.hot >= 0 && m.items()[m.hot].has_sub() && m.items()[m.hot].enabled;
+    // by index, not a reference: enter() pushes a submenu onto menus_, which may move every element (review B17)
+    auto m = [this, top]() -> PopupMenu & { return menus_[(size_t)top]; };
+    const bool sub = m().hot >= 0 && m().items()[m().hot].has_sub() && m().items()[m().hot].enabled;
     auto enter = [&]() { // opens the highlighted entry's submenu at its first entry
         open_sub(top, res.dirty);
         for (auto &r : menus_.back().key_dirty(PopupMenu::Key::Down))
             res.dirty.push_back(r);
     };
     auto move = [&](PopupMenu::Key pk) {
-        for (auto &r : m.key_dirty(pk))
+        for (auto &r : m().key_dirty(pk))
             res.dirty.push_back(r);
     };
     switch (k) {
@@ -369,17 +370,17 @@ PopupCascade::Result PopupCascade::key(Key k)
             move(PopupMenu::Key::Right);
         break;
     case Key::Left: {
-        const int before = m.hot;
+        const int before = m().hot;
         move(PopupMenu::Key::Left);
-        if (m.hot == before && top > 0) // the first column: back to the parent
+        if (m().hot == before && top > 0) // the first column: back to the parent
             close_after(top - 1, res.dirty);
         break;
     }
     case Key::Return:
         if (sub)
             enter();
-        else if (m.hot >= 0 && m.items()[m.hot].enabled)
-            return choose(top, m.hot);
+        else if (m().hot >= 0 && m().items()[m().hot].enabled)
+            return choose(top, m().hot);
         break;
     case Key::Escape:
         if (top > 0) {
@@ -387,7 +388,7 @@ PopupCascade::Result PopupCascade::key(Key k)
             break;
         }
         res.kind = Result::Closed;
-        res.dirty.push_back(m.bounds());
+        res.dirty.push_back(m().bounds());
         break;
     }
     return res;

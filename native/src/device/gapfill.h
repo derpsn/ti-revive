@@ -17,8 +17,9 @@ public:
     static constexpr int64_t SLACK = 2;            // sample times are Float64 and can be off by a fraction
 
     // the limit is 5 s at the device's rate (E323: the Virus may run at 48 kHz)
-    void set_rate(int rate) { max_fill_ = 5 * (int64_t)rate; }
-    int64_t max_fill() const { return max_fill_; } // test hook
+    // set_rate runs on the rate listener's thread, update() on the IOProc's: atomic (review A19)
+    void set_rate(int rate) { max_fill_.store(5 * (int64_t)rate, std::memory_order_relaxed); }
+    int64_t max_fill() const { return max_fill_.load(std::memory_order_relaxed); } // test hook
 
     // `sample_time` = the device time of the buffer's first frame (Core Audio's inInputTime), `ring` = the frames the
     // ring holds before this buffer. Returns the frames of silence to append before the buffer so that the ring stays
@@ -33,7 +34,7 @@ public:
             return 0;
         }
         const int64_t gap = (t - origin_) - ring;
-        if (gap > max_fill_ || gap < -SLACK) { // a new run of sample times: re-base, nothing to fill
+        if (gap > max_fill() || gap < -SLACK) { // a new run of sample times: re-base, nothing to fill
             origin_ = t - ring;
             return 0;
         }
@@ -47,7 +48,7 @@ public:
 private:
     bool valid_ = false;
     int64_t origin_ = 0;
-    int64_t max_fill_ = MAX_FILL;
+    std::atomic<int64_t> max_fill_{MAX_FILL};
     std::atomic<int64_t> filled_{0};
 };
 

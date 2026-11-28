@@ -3,9 +3,13 @@
 #ifndef _WIN32
 #include "check.h"
 #include "cc/diag.h"
+#include "cc/updatecheck.h"
+#include <climits>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <chrono>
+#include <thread>
 #include <unistd.h>
 using namespace vti::cc;
 namespace fs = std::filesystem;
@@ -290,5 +294,157 @@ TEST(diag_mac_broker_log_of_the_root_service_is_not_in_tmp)
 {
     CHECK(mac_broker_log(false) == "/tmp/tirevive-vtibroker.log");
     CHECK(mac_broker_log(true) == "/Library/Logs/TI Revive/vtibroker.log");
+}
+
+// review B24: without a plug-in folder (HOME not set) nothing is written to the current directory, the calls fail
+TEST(diag_no_plugin_dir_writes_nothing)
+{
+    Home h("vtester");
+    const fs::path cwd = fs::current_path();
+    fs::current_path(h.dir);
+    unsetenv("HOME");
+    std::string err;
+    CHECK(plugin_dir().empty() && plugin_log_path().empty());
+    CHECK(!set_plugin_log(false, err) && !err.empty());
+    err.clear();
+    CHECK(!set_plugin_option("outdelay-changes", true, err) && !err.empty());
+    CHECK(!write_update_state(UpdateState{}));
+    fs::current_path(cwd);
+    CHECK(fs::is_empty(h.dir));
+}
+
+// review B23: the check's answer goes into update.txt as it is when the answer comes (up to ~20 s later): what the
+// plug-in wrote meanwhile (the version its note was shown for) is kept, not overwritten by the copy read at the start
+TEST(updatecheck_result_keeps_what_the_plugin_wrote)
+{
+    Home h("vtester");
+    UpdateState before;
+    before.latest = "0.8.43";
+    CHECK(write_update_state(before));
+    UpdateState answer = read_update_state(); // the thread's copy at its start
+    answer.checked = 1794700000, answer.latest = "0.8.44";
+    UpdateState plugin = read_update_state(); // meanwhile the plug-in shows its note
+    plugin.seen = "0.8.43";
+    CHECK(write_update_state(plugin));
+    CHECK(store_update_result(answer));
+    const UpdateState now = read_update_state();
+    CHECK(now.checked == 1794700000 && now.latest == "0.8.44" && now.seen == "0.8.43");
+}
+
+// review B25: local time through localtime_r / localtime_s (localtime's static buffer is shared between threads),
+// and a time it cannot convert gives the fallback instead of strftime on a null pointer
+TEST(diag_local_time)
+{
+    CHECK(local_time("%Y", 86400 * 365).size() == 4);
+    CHECK(local_time("%Y-%m-%d", (time_t)LLONG_MAX) == "undated");
+    CHECK(local_time("%Y", (time_t)LLONG_MAX, "x") == "x");
+}
+
+// review B26: switching a flag off reports a folder it cannot look into (exists() failing counted as "not there")
+TEST(diag_flag_off_reports_an_unreadable_folder)
+{
+    Home h("vtester");
+    std::string err;
+    CHECK(set_plugin_option("outdelay-changes", true, err));
+    const fs::path dir = plugin_dir();
+    fs::permissions(dir, fs::perms::none);
+    std::error_code ec;
+    (void)fs::exists(dir / "x", ec);
+    const bool locked = (bool)ec; // root looks into every folder
+    err.clear();
+    const bool ok = set_plugin_option("outdelay-changes", false, err);
+    fs::permissions(dir, fs::perms::owner_all);
+    if (!locked)
+        SKIP("this user reads every folder");
+    CHECK(!ok && !err.empty());
+}
+
+// the check itself (coverage 2026-11-28): stand-in curl/wget scripts alone on PATH, so no real tool and no network
+namespace {
+struct FakeTools {
+    std::string old_path;
+    fs::path dir;
+    explicit FakeTools(const fs::path &home) : old_path(getenv("PATH") ? getenv("PATH") : ""), dir(home / "bin")
+    {
+        fs::create_directories(dir);
+        setenv("PATH", dir.string().c_str(), 1);
+    }
+    ~FakeTools() { setenv("PATH", old_path.c_str(), 1); }
+    void tool(const char *name, const std::string &body) // shell builtins only: PATH has nothing else
+    {
+        const fs::path p = dir / name;
+        std::ofstream(p) << "#!/bin/sh\n" << body << "\n";
+        fs::permissions(p, fs::perms::owner_all);
+    }
+};
+const char *kRelease = R"(printf '%s' '{"tag_name":"v0.8.99","prerelease":false}')";
+} // namespace
+
+TEST(updatecheck_run_reads_the_answer_of_curl)
+{
+    Home h("vtester");
+    FakeTools t(h.dir);
+    t.tool("curl", kRelease);
+    UpdateState s;
+    std::string err;
+    CHECK(run_update_check(s, err) && err.empty());
+    CHECK(s.latest == "0.8.99" && s.checked > 0);
+}
+
+TEST(updatecheck_run_errors_say_why)
+{
+    Home h("vtester");
+    FakeTools t(h.dir);
+    UpdateState s;
+    std::string err;
+    t.tool("curl", "exit 22"); // curl -f on an HTTP error
+    CHECK(!run_update_check(s, err) && err == "no answer" && s.latest.empty());
+    t.tool("curl", R"(printf '%s' '{"message":"API rate limit exceeded"}')");
+    err.clear();
+    CHECK(!run_update_check(s, err) && err == "an answer without a release" && s.checked == 0);
+}
+
+#ifndef __APPLE__
+TEST(updatecheck_run_falls_back_to_wget)
+{
+    Home h("vtester");
+    FakeTools t(h.dir);
+    UpdateState s;
+    std::string err;
+    CHECK(!run_update_check(s, err) && err == "neither curl nor wget found");
+    t.tool("wget", kRelease);
+    err.clear();
+    CHECK(run_update_check(s, err) && s.latest == "0.8.99");
+}
+#endif
+
+TEST(updatecheck_start_writes_the_answer_only_when_switched_on)
+{
+    Home h("vtester");
+    FakeTools t(h.dir);
+    t.tool("curl", kRelease);
+    start_update_check_if_due(true); // option off (the default): no check
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    CHECK(read_update_state().latest.empty());
+    std::string err;
+    CHECK(set_plugin_option("update-check", true, err));
+    start_update_check_if_due(true);
+    bool got = false;
+    for (int i = 0; i < 250 && !got; i++) { // the check runs on its own thread
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        got = read_update_state().latest == "0.8.99";
+    }
+    CHECK(got);
+    for (int i = 0; i < 50; i++) // let the thread end before HOME and PATH go back
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+}
+
+TEST(updatecheck_os_family_names_this_system)
+{
+#ifdef __APPLE__
+    CHECK(std::string(os_family()) == "macOS");
+#else
+    CHECK(std::string(os_family()) == "Linux");
+#endif
 }
 #endif

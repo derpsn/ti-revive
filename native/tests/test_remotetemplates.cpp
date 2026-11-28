@@ -196,6 +196,7 @@ TEST(remote_templates_midi_string)
     CHECK(RemoteTemplates::encode_midi("b0,5;XXX") == enc);       // lower case, punctuation, a run of X = one value
     CHECK(RemoteTemplates::encode_midi("%176 %5 v") == enc);      // decimal bytes
     CHECK(RemoteTemplates::encode_midi("%300")[0] == 0x0F && RemoteTemplates::encode_midi("%300")[1] == 0x0F); // 255
+    CHECK(RemoteTemplates::encode_midi("%99999999999999999999")[0] == 0x0F); // too long for an int: still 255 (review B6)
     CHECK(RemoteTemplates::encode_midi("ff")[0] == 0x0F && RemoteTemplates::encode_midi("ff")[1] == 0x0F); // = value
     auto empty = RemoteTemplates::encode_midi("");
     CHECK(empty[0] == 0x0E && empty[1] == 0x0F && empty[2] == 0); // the default record's string
@@ -284,6 +285,28 @@ TEST(remote_templates_file_list)
     CHECK(remote_template_files((dir / "missing").string()).empty());
     CHECK(remote_template_name("Live/x.vrt") == "Live/x" && remote_template_name("A.VRT") == "A");
     fs::remove_all(dir);
+}
+
+// review B7: a folder the user may not read does not end the list early: the files around it are still listed
+TEST(remote_templates_file_list_skips_unreadable_folders)
+{
+    namespace fs = std::filesystem;
+    fs::path dir = fs::temp_directory_path() / ("vtitests-vrt-perm-" + std::to_string(::time(nullptr)));
+    for (int i = 0; i < 20; i++) { // folders and files mixed: the order of a directory listing is the file system's
+        fs::create_directories(dir / ("locked" + std::to_string(i)));
+        std::ofstream(dir / ("locked" + std::to_string(i)) / "hidden.vrt") << "x";
+        fs::permissions(dir / ("locked" + std::to_string(i)), fs::perms::none);
+        std::ofstream(dir / ("t" + std::to_string(i) + ".vrt")) << "x";
+    }
+    std::error_code ec;
+    fs::directory_iterator probe(dir / "locked0", ec); // root reads every folder
+    auto l = remote_template_files(dir.string());
+    for (int i = 0; i < 20; i++)
+        fs::permissions(dir / ("locked" + std::to_string(i)), fs::perms::owner_all);
+    fs::remove_all(dir);
+    if (!ec)
+        SKIP("this user reads every folder");
+    CHECK_EQ(l.size(), 20u);
 }
 
 // the original's receiver checks only the header (F0 00 20 33 01 10 13), the template / knob and the length, not the

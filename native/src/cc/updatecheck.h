@@ -39,6 +39,9 @@ const char *os_family(); // "Windows", "macOS" or "Linux"
 std::string update_state_path();
 UpdateState read_update_state();
 bool write_update_state(const UpdateState &s);
+// a check's answer (`checked`, `latest` of `answer`) written into update.txt as it is now: the file is read again
+// first, so what the plug-in wrote while the check ran (`seen`) is kept (review B23)
+bool store_update_result(const UpdateState &answer);
 
 // The check itself (Control Center only; blocks up to ~20 s, so not on a UI thread). True when GitHub answered with a
 // release; `s` gets the time and the version. `error` says why not (no curl, no network, an odd answer).

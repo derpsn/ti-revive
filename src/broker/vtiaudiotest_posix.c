@@ -4,6 +4,7 @@
 // a C4 every second (USB-MIDI on EP 0x06, cable 2, as the plug-in does, E056).
 //
 // usage: vtiaudiotest [-sine] [-note] [seconds] [out.wav]
+#include "devslot.h" // vti_sock_path
 #include "vtiaudioshm.h"
 #include "vtiproto.h"
 #include <fcntl.h>
@@ -67,7 +68,7 @@ int main(int argc, char **argv)
         else
             wav = argv[i];
     struct sockaddr_un sa = {.sun_family = AF_UNIX};
-    snprintf(sa.sun_path, sizeof sa.sun_path, "/tmp/vtibroker-%u.sock", (unsigned)getuid());
+    vti_sock_path(sa.sun_path, sizeof sa.sun_path, (unsigned)getuid(), "", getenv("XDG_RUNTIME_DIR"));
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (connect(fd, (struct sockaddr *)&sa, sizeof sa)) {
         perror("connect (is vtibroker running?)");

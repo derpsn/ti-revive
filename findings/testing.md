@@ -50,6 +50,8 @@ The installed plug-in in `nativehost` (no DAW), C4 at the start of every second 
 
 - log: "Virus ready after", "sync marker at frame", no "no sync marker", no "audio stood still" (except after
   a sleep);
+- level: the recording's peak above -40 dBFS (clean runs: about -20 dBFS; the onsets alone are relative, noise
+  would make a grid too);
 - notes: first note within 15 s, none lost, no sounds off the grid, notes until the end;
 - timing: every note within 5 ms of a fitted grid, jitter below 1 ms, drift below 100 ppm;
 - export: the offline part runs at 0.8-1.25x real time (paced to the Virus, E204); after a 4 s stop (real-time

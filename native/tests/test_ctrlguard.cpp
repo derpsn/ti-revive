@@ -114,3 +114,13 @@ TEST(ctrlguard_plugin_traffic_passes)
     CHECK(blocked(w, pack(2, {0xF0, 0x00, 0x20, 0x33, 0x01, 0x10, 0x70, 0x00, 0x03, 5, 0xF7})) == 0); // page A param 3
     CHECK(blocked(w, {0x2B, 0xB0, 0x07, 0x64}) == 0);
 }
+
+TEST(ctrlguard_write_must_be_whole_packets)
+{
+    // the filter reads 4-byte packets; a tail of 1-3 bytes would reach the Virus unchecked (review A1)
+    vti_sxwatch w{};
+    CHECK(blocked(w, {0x2B, 0xB0, 0x07, 0x64, 0x2F, 0xF4}) == 1);
+    CHECK(blocked(w, {0x2F}) == 1);
+    CHECK(blocked(w, {}) == 0);
+    CHECK(blocked(w, {0x2B, 0xB0, 0x07, 0x64}) == 0);
+}

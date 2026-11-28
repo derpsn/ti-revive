@@ -85,3 +85,17 @@ TEST(trafring_refuses_a_record_larger_than_the_ring)
     CHECK(v.size() == 1 && v[0] == rec(1, 0x85, 1, "keep")); // kept what it had
     CHECK_EQ(r.lost, (uint64_t)1);
 }
+
+TEST(trafring_record_from_a_usb_event)
+{
+    // both brokers build the record the same way (review A11): header kind, ep, ms; body a then b, b only if it fits
+    uint8_t hdr[6], body[8];
+    const uint8_t a[3] = {1, 2, 3}, b[4] = {4, 5, 6, 7};
+    CHECK_EQ(vti_trafrec(hdr, body, sizeof body, 2, 0x86, 0x01020304, a, 3, b, 4), 7);
+    CHECK(hdr[0] == 2 && hdr[1] == 0x86 && body[3] == 4 && body[6] == 7);
+    uint32_t t;
+    std::memcpy(&t, hdr + 2, 4);
+    CHECK_EQ(t, 0x01020304u);
+    CHECK_EQ(vti_trafrec(hdr, body, 5, 0, 6, 0, a, 3, b, 4), 3); // b does not fit: left out
+    CHECK_EQ(vti_trafrec(hdr, body, 2, 0, 6, 0, a, 3, NULL, 0), 2); // a cut to the room
+}

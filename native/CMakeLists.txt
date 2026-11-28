@@ -1,6 +1,6 @@
 # virus-ti-native - native rewrite of the Access Virus TI plug-in (docs/plan.md)
 cmake_minimum_required(VERSION 3.25)
-project(virus-ti-native VERSION 0.8.44 LANGUAGES C CXX) # = the TI Revive release it ships with
+project(virus-ti-native VERSION 0.8.45 LANGUAGES C CXX) # = the TI Revive release it ships with
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Windows: static C/C++ runtime, so the plug-in and the ASIO driver run without the VC++ redistributable
@@ -193,9 +193,9 @@ add_executable(vtitests tests/main.cpp tests/test_usbmidi.cpp tests/test_state.c
                tests/test_gapfill.cpp tests/test_crossfade.cpp tests/test_audiogate.cpp tests/test_dragsend.cpp tests/test_hostmidi.cpp tests/test_textfield.cpp
                tests/test_bankdrop.cpp tests/test_hostgestures.cpp tests/test_editgestures.cpp tests/test_ratesw.cpp tests/test_timelinefollow.cpp
                tests/test_blockevents.cpp tests/test_outputdelay.cpp tests/test_lcdhover.cpp
-               tests/test_heldnotes.cpp tests/test_factoryorder.cpp tests/test_ratemeter.cpp tests/test_sectionlock.cpp tests/test_resync.cpp tests/test_slipwatch.cpp tests/test_freezewatch.cpp
+               tests/test_heldnotes.cpp tests/test_factoryorder.cpp tests/test_ratemeter.cpp tests/test_sectionlock.cpp tests/test_resync.cpp tests/test_slipwatch.cpp tests/test_freezewatch.cpp tests/test_outfill.cpp
                tests/test_editormenus.cpp tests/test_infopage.cpp tests/test_rambackup.cpp tests/test_undohistory.cpp
-               tests/test_comparestate.cpp tests/test_randomizer.cpp tests/test_trafficring.cpp tests/test_capture.cpp tests/test_keyport.cpp tests/test_closeseq.cpp tests/test_answerwatch.cpp tests/test_bankcheck.cpp tests/test_utf8.cpp tests/test_winusb_errors.cpp tests/test_markerscan.cpp tests/test_rxqueue.cpp tests/test_linkrule.cpp tests/test_optionslayout.cpp tests/test_owneruid.cpp tests/test_macgiveback.cpp tests/test_seqevent.cpp tests/test_updatecheck.cpp tests/test_midiports.cpp tests/test_nerdview.cpp tests/test_keyporthelper.cpp tests/test_latencywatch.cpp tests/test_idlepace.cpp tests/test_devslot.cpp tests/test_slotpick.cpp tests/test_awayqueue.cpp tests/test_ramqueue.cpp tests/test_statehold.cpp tests/test_idleedits.cpp $<$<NOT:$<PLATFORM_ID:Windows>>:tests/test_sendtimeout.cpp>)
+               tests/test_comparestate.cpp tests/test_randomizer.cpp tests/test_trafficring.cpp tests/test_capture.cpp tests/test_keyport.cpp tests/test_closeseq.cpp tests/test_answerwatch.cpp tests/test_bankcheck.cpp tests/test_utf8.cpp tests/test_winusb_errors.cpp tests/test_markerscan.cpp tests/test_rxqueue.cpp tests/test_linkrule.cpp tests/test_optionslayout.cpp tests/test_owneruid.cpp tests/test_macgiveback.cpp tests/test_seqevent.cpp tests/test_updatecheck.cpp tests/test_midiports.cpp tests/test_nerdview.cpp tests/test_keyporthelper.cpp tests/test_latencywatch.cpp tests/test_idlepace.cpp tests/test_devslot.cpp tests/test_slotpick.cpp tests/test_awayqueue.cpp tests/test_ramqueue.cpp tests/test_statehold.cpp tests/test_idleedits.cpp tests/test_framepace.cpp $<$<NOT:$<PLATFORM_ID:Windows>>:tests/test_sendtimeout.cpp>)
 target_link_libraries(vtitests PRIVATE vticore)
 add_test(NAME vtitests COMMAND vtitests)
 # the libusb audio stream (src/broker/vtiusbaudio_libusb.c) against stub libusb functions: its own binary, built with
@@ -283,6 +283,17 @@ if(PWSH_EXECUTABLE)
              COMMAND ${PWSH_EXECUTABLE} -NoProfile -NonInteractive -Command
                      "if (-not (Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -eq 5 })) { exit 77 }; Import-Module Pester -MinimumVersion 5.0 -MaximumVersion 5.99; $r = Invoke-Pester '${CMAKE_CURRENT_SOURCE_DIR}/../src/installer/tests' -Output Detailed -PassThru; exit [int]($r.FailedCount + $r.FailedBlocksCount + $r.FailedContainersCount -gt 0)")
     set_tests_properties(installer_scripts PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+endif()
+
+# virusctl refuses what rule 2 forbids before it asks a broker; the socket nobody serves keeps a broken guard from
+# reaching a real Virus (a different endpoint never starts the installed broker either)
+if(NOT WIN32)
+    add_test(NAME virusctl_rule2 COMMAND virusctl sysex "f0 00 20 33 01 00 72 00 00 00 f7 f0 00 20 33 01 00 72 00 03 00 f7")
+    set_tests_properties(virusctl_rule2 PROPERTIES ENVIRONMENT "VIRUSCTL_BROKER=/nonexistent/vtibroker-test.sock"
+                         PASS_REGULAR_EXPRESSION "rule 2: refused f0 00 20 33 01 00 72 00 00 00 f7")
+    add_test(NAME virusctl_rule2_half COMMAND virusctl sysex "f0 00 20 33 01 00 72 00 03 00")
+    set_tests_properties(virusctl_rule2_half PROPERTIES ENVIRONMENT "VIRUSCTL_BROKER=/nonexistent/vtibroker-test.sock"
+                         PASS_REGULAR_EXPRESSION "rule 2: refused, not one complete")
 endif()
 
 # the test tooling's Python scripts (risk classes -> checklist items, findings/testing.md); skipped without Python 3

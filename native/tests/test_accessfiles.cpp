@@ -4,6 +4,8 @@
 #ifndef _WIN32
 #include "check.h"
 #include "access/accessfiles.h"
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -168,6 +170,17 @@ TEST(accessfiles_resource_folder)
     CHECK(a->names().size() == 2 && a->source() == t.dir.string());
     fs::create_directories(t.dir / "empty");
     CHECK(!AccessFiles::open((t.dir / "empty").string(), err) && !err.empty());
+    // review B12: a file it may not read is not listed (an empty remotedevice.xml counted as found before)
+    TempDir u("unreadable");
+    write(u.dir / "remotedevice.xml", REMOTE);
+    write(u.dir / "editor.xml", std::string("<Editor/>"));
+    fs::permissions(u.dir / "remotedevice.xml", fs::perms::none);
+    if (std::ifstream(u.dir / "remotedevice.xml")) { // root reads it anyway
+        fs::permissions(u.dir / "remotedevice.xml", fs::perms::owner_all);
+        return;
+    }
+    CHECK(!AccessFiles::open(u.dir.string(), err));
+    fs::permissions(u.dir / "remotedevice.xml", fs::perms::owner_all);
 }
 
 // E361: the original's device types use their own files - the Snow its 4-part editor (editorPR.xml), its device
@@ -348,6 +361,74 @@ TEST(accessfiles_pe_errors)
     CHECK(fails(t.dir / "missing.dll", "cannot read"));
 }
 
+// review B10: a damaged resource tree cannot make the walk run for minutes. Here the "XML" type directory claims
+// 131070 entries that all point back to itself, as a name and as a language directory: before, 131070 x 131070
+// entries were read
+TEST(accessfiles_pe_resource_walk_bounded)
+{
+    const uint32_t pe = 0x40, optsz = 240, sec_raw = 0x400, sec_va = 0x1000, t = 32, n = 0xFFFF * 2;
+    Bytes rs(t + 16 + 8 * n, 0);
+    auto put16 = [&](Bytes &b, size_t o, uint16_t v) { b[o] = v & 0xFF, b[o + 1] = v >> 8; };
+    auto put32 = [&](Bytes &b, size_t o, uint32_t v) {
+        for (int i = 0; i < 4; i++)
+            b[o + i] = (v >> (8 * i)) & 0xFF;
+    };
+    put16(rs, 12, 1);                                  // root: one named type
+    put32(rs, 16, 0x80000000u | 24), put32(rs, 20, 0x80000000u | t);
+    put16(rs, 24, 3), put16(rs, 26, 'X'), put16(rs, 28, 'M'), put16(rs, 30, 'L');
+    put16(rs, t + 12, 0xFFFF), put16(rs, t + 14, 0xFFFF);
+    for (uint32_t i = 0; i < n; i++)
+        put32(rs, t + 16 + 8 * i, 0x80000000u | 24), put32(rs, t + 20 + 8 * i, 0x80000000u | t);
+    Bytes d(sec_raw + rs.size(), 0);
+    d[0] = 'M', d[1] = 'Z';
+    put32(d, 0x3c, pe);
+    memcpy(d.data() + pe, "PE\0\0", 4);
+    put16(d, pe + 4, 0x8664), put16(d, pe + 6, 1), put16(d, pe + 20, optsz), put16(d, pe + 24, 0x20b);
+    put32(d, pe + 24 + 112 + 16, sec_va), put32(d, pe + 24 + 112 + 20, (uint32_t)rs.size());
+    const size_t sh = pe + 24 + optsz;
+    put32(d, sh + 8, (uint32_t)rs.size()), put32(d, sh + 12, sec_va), put32(d, sh + 16, (uint32_t)rs.size());
+    put32(d, sh + 20, sec_raw);
+    memcpy(d.data() + sec_raw, rs.data(), rs.size());
+    TempDir td("peloop");
+    write(td.dir / "loop.dll", d);
+    Env env;
+    no_installation(env, td.dir / "home");
+    std::string err;
+    const auto t0 = std::chrono::steady_clock::now();
+    CHECK(!AccessFiles::open((td.dir / "loop.dll").string(), err));
+    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(5));
+}
+
+// review B11: a resource whose address lies in a section's uninitialised part (past its raw data, inside its virtual
+// size) has no bytes in the file; read through max(virtual, raw) size it took whatever followed the section
+TEST(accessfiles_pe_resource_outside_raw_data)
+{
+    Bytes d = fake_pe({{"REMOTEDEVICE.XML", REMOTE}});
+    const uint32_t pe = 0x40, sh = pe + 24 + 240, sec_raw = 0x400, sec_va = 0x1000;
+    auto get32 = [&](size_t o) { return (uint32_t)d[o] | d[o + 1] << 8 | d[o + 2] << 16 | (uint32_t)d[o + 3] << 24; };
+    auto put32 = [&](size_t o, uint32_t v) {
+        for (int i = 0; i < 4; i++)
+            d[o + i] = (v >> (8 * i)) & 0xFF;
+    };
+    const uint32_t raw = get32(sh + 16);
+    const size_t content = std::search(d.begin(), d.end(), REMOTE.begin(), REMOTE.end()) - d.begin();
+    const uint32_t rva = sec_va + (uint32_t)(content - sec_raw);
+    size_t entry = 0;
+    for (size_t o = sec_raw; o + 4 <= d.size(); o++)
+        if (get32(o) == rva)
+            entry = o;
+    CHECK(entry != 0);
+    put32(entry, sec_va + raw);         // the data now starts right after the raw data...
+    put32(sh + 8, raw + 0x100);         // ...inside the virtual size
+    d.insert(d.end(), REMOTE.begin(), REMOTE.end()); // and the file holds other bytes there
+    TempDir t("pebss");
+    write(t.dir / "bss.dll", d);
+    Env env;
+    no_installation(env, t.dir / "home");
+    std::string err;
+    CHECK(!AccessFiles::open((t.dir / "bss.dll").string(), err));
+}
+
 TEST(accessfiles_open_nothing)
 {
     TempDir t("none");
@@ -445,6 +526,12 @@ TEST(accessfiles_osc_waves_mac_bundle)
     // a bundle without the table: no waves (the display falls back to the sine)
     write(bundle / "Contents" / "MacOS" / "Virus Control", Bytes(0x2000, 0x5A));
     CHECK(AccessFiles::open("", err)->osc_waves().empty());
+    // review B13: one read of the binary serves all searches (init patches, waves, knob templates)
+    write(bundle / "Contents" / "MacOS" / "Virus Control", waves_blob(0x1234, 0.5f));
+    auto b = AccessFiles::open("", err);
+    CHECK(b && b->init_single().empty()); // the first search reads the binary
+    fs::remove(bundle / "Contents" / "MacOS" / "Virus Control");
+    CHECK(b && b->osc_waves().size() == 64 * 64 && b->knob_templates().empty());
 }
 
 namespace {

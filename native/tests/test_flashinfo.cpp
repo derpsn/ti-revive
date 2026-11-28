@@ -88,3 +88,19 @@ TEST(flashinfo_stops_on_error_and_poll_limit)
     CHECK(vti_flash_info(FakeVirus::ctl, FakeVirus::nap, &slow, out) < 0);
     CHECK(slow.log.size() == 1 + VTI_FLASH_MAX_POLLS);
 }
+
+TEST(flashinfo_cache_one_read_per_device_open)
+{
+    // both brokers' cache (review A11): one read at a time, kept for the device open it belongs to
+    vti_flashcache f{};
+    uint8_t out[VTI_FLASH_BLOCKS * 16] = {0x5A}, got[VTI_FLASH_BLOCKS * 16] = {};
+    int n = 0;
+    CHECK(vti_flash_begin(&f, 0, 1, got, &n) == 0 && n == -1); // no device
+    CHECK(vti_flash_begin(&f, 1, 1, got, &n) == 1);            // read it
+    CHECK(vti_flash_begin(&f, 1, 1, got, &n) == 0 && n == -1); // another read is running
+    vti_flash_end(&f, 1, 1, out, (int)sizeof out);
+    CHECK(vti_flash_begin(&f, 1, 1, got, &n) == 0 && n == (int)sizeof out && got[0] == 0x5A);
+    CHECK(vti_flash_begin(&f, 1, 2, got, &n) == 1);            // reopened: read again
+    vti_flash_end(&f, 3, 2, out, (int)sizeof out);             // and reopened during the read: not kept
+    CHECK(vti_flash_begin(&f, 1, 3, got, &n) == 1);
+}

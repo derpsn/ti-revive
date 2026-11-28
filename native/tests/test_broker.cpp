@@ -28,6 +28,7 @@ extern "C" {
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <thread>
+#include <fcntl.h>
 #include <unistd.h>
 #include <vector>
 
@@ -104,7 +105,7 @@ struct FakeBroker {
         sa.sun_family = AF_UNIX;
         snprintf(sa.sun_path, sizeof sa.sun_path, "%s", path.c_str());
         lfd = ::socket(AF_UNIX, SOCK_STREAM, 0);
-        if (lfd < 0 || ::bind(lfd, (sockaddr *)&sa, sizeof sa) || ::listen(lfd, 1))
+        if (lfd < 0 || ::bind(lfd, (sockaddr *)&sa, sizeof sa) || ::listen(lfd, 16)) // 16: later connections wait unserved (broker_open_close_from_two_threads)
             std::fprintf(stderr, "  fake broker: cannot listen on %s\n", path.c_str());
         th = std::thread([this] { serve(); });
     }
@@ -1174,6 +1175,90 @@ TEST(memsync_timeout_starts_when_the_broker_wrote_the_request)
     Dump r = sync.transact({0xF0, 0x00, 0x20, 0x33, 0x01, 0x10, 0x30, 0x00, 0x00, 0xF7}, {0x10, 0x00, 0x00}, 200, 1);
     virus.join();
     CHECK_EQ(r.size(), 524u); // 200 ms from the socket write would have ended before the answer
+    b.close();
+}
+
+// review A12: a wait for a reply ends when the connection does, not after its whole timeout
+TEST(broker_waits_end_when_the_connection_drops)
+{
+    FakeBroker fb;
+    Broker b;
+    b.set_endpoint(fb.path);
+    std::string err;
+    CHECK(b.open(err));
+    fb.answer_control = false;
+    fb.answer_audio = false;
+    std::thread drop([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        fb.stop();
+    });
+    auto t0 = std::chrono::steady_clock::now();
+    uint8_t in[4];
+    CHECK_EQ(b.control(0x80, 6, 0x0100, 0, in, sizeof in, 5000), -1);
+    CHECK_EQ(b.audio(true, 5000), -1);
+    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(2));
+    drop.join();
+    b.close();
+}
+
+// review A13: an OBSERVE on a new connection waits for that connection's reply, not the old one's
+TEST(broker_observe_reply_belongs_to_its_connection)
+{
+    Broker b;
+    std::string err;
+    {
+        FakeBroker fb;
+        b.set_endpoint(fb.path);
+        CHECK(b.open(err));
+        CHECK(b.observe([](uint16_t, const uint8_t *, size_t) {}, err));
+        b.close();
+    }
+    FakeBroker old;
+    old.answer_observe = false; // a broker that does not know OBSERVE
+    CHECK(b.open(err));
+    CHECK(!b.observe([](uint16_t, const uint8_t *, size_t) {}, err));
+}
+
+// review A14: open() and close() from two threads at once never join one reader twice
+TEST(broker_open_close_from_two_threads)
+{
+    FakeBroker fb;
+    Broker b;
+    b.set_endpoint(fb.path);
+    std::string err;
+    CHECK(b.open(err));
+    auto cycle = [&] { // few rounds: the fake broker serves only the first connection, a later open() waits 1 s
+        for (int i = 0; i < 3; i++) {
+            std::string e;
+            b.open(e);
+            b.close();
+        }
+    };
+    std::thread other(cycle);
+    cycle();
+    other.join();
+    b.close();
+    CHECK(!b.connected());
+}
+
+// review A16: the broker socket is not inherited by programs the host starts
+TEST(broker_socket_is_close_on_exec)
+{
+    FakeBroker fb;
+    Broker b;
+    b.set_endpoint(fb.path);
+    std::string err;
+    CHECK(b.open(err));
+    int found = 0;
+    for (int fd = 0; fd < 1024; fd++) {
+        sockaddr_un sa{};
+        socklen_t l = sizeof sa;
+        if (::getpeername(fd, (sockaddr *)&sa, &l) || sa.sun_family != AF_UNIX || fb.path != sa.sun_path)
+            continue;
+        found++;
+        CHECK(fcntl(fd, F_GETFD) & FD_CLOEXEC);
+    }
+    CHECK_EQ(found, 1);
     b.close();
 }
 

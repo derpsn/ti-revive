@@ -3,6 +3,7 @@
 // 2026-10-14), so any change of behaviour in the upgrade shows up here.
 #include "check.h"
 #include "model/remotedevice.h"
+#include "model/state.h"
 
 using namespace vti;
 using Bytes = std::vector<uint8_t>;
@@ -93,4 +94,18 @@ TEST(patch_origin_bytes)
     std::vector<uint8_t> shortd(10, 0);
     set_patch_origin(shortd, 1, 4, true); // not a single dump: left alone
     CHECK(shortd == std::vector<uint8_t>(10, 0));
+}
+
+// review B4: the version byte is unsigned. A damaged dump with 0x80.. read as int8_t looked like version < 0 and was
+// put through every conversion; it is left alone like any version above 12
+TEST(upgrade_single_version_byte_unsigned)
+{
+    Rng r;
+    for (int v : {0x80, 0xC4, 0xFF}) {
+        Bytes m = dump(r, v, 0), before = m;
+        CHECK(!RemoteDevice::upgrade_single(m, Bytes(256, 1)));
+        CHECK(m[9] == v);
+        std::vector<Bytes> recs = {m};
+        CHECK_EQ(upgrade_state_dumps(recs), 0);
+    }
 }

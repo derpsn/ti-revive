@@ -114,12 +114,19 @@ TEST(firmware_rom_banks_from_sectors)
     err.clear();
     CHECK(load_rom_banks(path, VirusModel::Snow, err).empty() && err.find("vti_snow.bin") != std::string::npos);
     std::remove(path.c_str());
+    // review B14: two names that both end in the model's image name: the first one counts
+    Bytes twice = form({chunk("TABL", tabl({"a/vti.bin", "b/vti.bin"})), chunk("IMG1", ti), chunk("IMG2", ti2)});
+    std::string p2 = write_temp(twice, "twice");
+    auto first = load_rom_banks(p2, VirusModel::TI, err);
+    CHECK(first.size() == 1 && first[0][0][9] == at(1, 0));
+    std::remove(p2.c_str());
 }
 
 TEST(firmware_errors)
 {
     std::string err;
-    CHECK(load_rom_banks("/vtitests-no-such-firmware.bin", VirusModel::TI2, err).empty() && !err.empty());
+    CHECK(load_rom_banks("/vtitests-no-such-firmware.bin", VirusModel::TI2, err).empty() &&
+          err.find("cannot read") != std::string::npos); // review B14: said "not a Virus firmware package"
     std::string notform = write_temp(Bytes{'R', 'I', 'F', 'F', 0, 0, 0, 0}, "riff");
     err.clear();
     CHECK(load_rom_banks(notform, VirusModel::TI2, err).empty() && err.find("not a Virus firmware") != std::string::npos);

@@ -5,9 +5,12 @@
 //   virusctl timing                      F5 calibration: notes stamped at newest ring frame + D, onset found in the ring
 //   virusctl sysex <hex bytes> [ms] [file] send a SysEx on cable 2, print the SysEx replies of the next ms (default
 //                                        2000) and append them to file (raw .syx)
+// Every message that goes out passes vti::blocked_to_virus first (rule 2). VIRUSCTL_BROKER=<socket> talks to another
+// broker socket (Linux, macOS).
 #include "../src/access/accessfiles.h"
 #include "../src/device/audioin.h"
 #include "../src/device/broker.h"
+#include "../src/device/sendguard.h"
 extern "C" {
 #include "vtiaudioshm.h"
 }
@@ -30,10 +33,45 @@ extern "C" {
 
 static const uint8_t EP_PLUGIN_OUT = 0x06, CABLE_PLUGIN = 2;
 
+// Rule 2 (AGENTS.md): virusctl never sends what the plug-in never sends (vti::blocked_to_virus, issue #7, E236).
+static bool refused(const std::vector<uint8_t> &m)
+{
+    if (!vti::blocked_to_virus(m.data(), m.size()))
+        return false;
+    fprintf(stderr, "virusctl: rule 2: refused");
+    for (auto b : m)
+        fprintf(stderr, " %02x", b);
+    fprintf(stderr, "\n");
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     std::string cmd = argc > 1 ? argv[1] : "state", err;
+    // sysex: the messages are split and checked before the broker is even asked, so a refused one never gets near it
+    std::vector<std::vector<uint8_t>> sysex; // several messages may follow each other ("f0 .. f7 f0 .. f7")
+    if (cmd == "sysex" && argc >= 3) {
+        std::vector<uint8_t> msg;
+        std::istringstream hex(argv[2]);
+        for (std::string t; hex >> t;)
+            msg.push_back((uint8_t)strtoul(t.c_str(), nullptr, 16));
+        for (size_t a = 0; a < msg.size();) {
+            size_t b = a;
+            while (b < msg.size() && msg[b] != 0xF7)
+                b++;
+            sysex.emplace_back(msg.begin() + a, msg.begin() + std::min(b + 1, msg.size()));
+            if (refused(sysex.back()))
+                return 1;
+            if (!vti::one_message(sysex.back().data(), sysex.back().size())) { // a half message could be finished later
+                fprintf(stderr, "virusctl: rule 2: refused, not one complete MIDI message\n");
+                return 1;
+            }
+            a = b + 1;
+        }
+    }
     vti::Broker broker;
+    if (const char *ep = getenv("VIRUSCTL_BROKER")) // another socket (tests: one nobody serves, never the Virus)
+        broker.set_endpoint(ep);
     if (!broker.open(err)) {
         fprintf(stderr, "virusctl: %s\n", err.c_str());
         return 1;
@@ -58,6 +96,8 @@ int main(int argc, char **argv)
             fprintf(stderr, "virusctl: cannot encode %s\n", argv[2]);
             return 1;
         }
+        if (refused(msg))
+            return 1;
         auto pk = vti::usbmidi_pack(msg, CABLE_PLUGIN);
         bool ok = broker.write(EP_PLUGIN_OUT, pk.data(), pk.size());
         for (auto b : msg)
@@ -86,6 +126,8 @@ int main(int argc, char **argv)
             vti::RemoteDevice dev;
             if (files && dev.load(files->get("remotedevice.xml"), err))
                 for (auto &m : dev.init_messages()) {
+                    if (refused(m))
+                        return 1;
                     auto pk = vti::usbmidi_pack(m, CABLE_PLUGIN);
                     broker.write(EP_PLUGIN_OUT, pk.data(), pk.size());
                 }
@@ -175,10 +217,6 @@ int main(int argc, char **argv)
     }
 #endif
     if (cmd == "sysex" && argc >= 3) {
-        std::vector<uint8_t> msg; // several messages may follow each other ("f0 .. f7 f0 .. f7")
-        std::istringstream hex(argv[2]);
-        for (std::string t; hex >> t;)
-            msg.push_back((uint8_t)strtoul(t.c_str(), nullptr, 16));
         int ms = argc > 3 ? atoi(argv[3]) : 2000;
         FILE *out = argc > 4 ? fopen(argv[4], "ab") : nullptr;
         static const int CIN_LEN[16] = {0, 0, 2, 3, 3, 1, 2, 3, 3, 3, 3, 3, 2, 2, 3, 1};
@@ -212,17 +250,12 @@ int main(int argc, char **argv)
                 }
             }
         });
-        for (size_t a = 0; a < msg.size();) {
-            size_t b = a;
-            while (b < msg.size() && msg[b] != 0xF7)
-                b++;
-            std::vector<uint8_t> one(msg.begin() + a, msg.begin() + std::min(b + 1, msg.size()));
+        for (auto &one : sysex) {
             auto pk = vti::usbmidi_pack(one, CABLE_PLUGIN);
             if (!broker.write(EP_PLUGIN_OUT, pk.data(), pk.size())) {
                 fprintf(stderr, "virusctl: write failed\n");
                 return 1;
             }
-            a = b + 1;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(ms));
         broker.on_rx(nullptr);

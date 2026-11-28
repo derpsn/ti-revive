@@ -119,13 +119,29 @@ class FindMsi(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             self.assertEqual(call("find_msi", "", home=home), "")
 
+    # audit 4: unpack_msi runs msiextract inside the target folder, so a relative .msi path given on the command
+    # line must become absolute first
+    def test_relative_path_unpacks(self):
+        with tempfile.TemporaryDirectory() as t:
+            os.makedirs(os.path.join(t, "bin"))
+            os.makedirs(os.path.join(t, "out"))
+            fake = os.path.join(t, "bin", "msiextract")
+            with open(fake, "w") as f:
+                f.write('#!/bin/sh\n[ -f "$1" ] && touch unpacked\n')
+            os.chmod(fake, 0o755)
+            open(os.path.join(t, "my.msi"), "w").close()
+            env = dict(os.environ, TIREVIVE_INSTALL_FUNCS_ONLY="1", PATH=os.path.join(t, "bin") + ":/usr/bin:/bin")
+            subprocess.run(["sh", "-c", '. "$1"; unpack_msi "$(find_msi my.msi)" out', "sh", INSTALL], env=env,
+                           cwd=t, check=True, capture_output=True)
+            self.assertTrue(os.path.exists(os.path.join(t, "out", "unpacked")))
+
 
 if __name__ == "__main__":
     unittest.main()
 
 
 class BrokerSlotUnits(unittest.TestCase):
-    """Several Viruses (#45): systemd starts broker N (vtibroker -slot N) on /tmp/vtibroker-<uid>-N.sock, the path
+    """Several Viruses (#45): systemd starts broker N (vtibroker -slot N) on $XDG_RUNTIME_DIR/vtibroker-<uid>-N.sock, the path
     the plug-in connects to (devslot.h); the release package and the installer carry the template units."""
     I = os.path.join(HERE, "..", "..", "src", "installer-linux")
 
@@ -134,7 +150,8 @@ class BrokerSlotUnits(unittest.TestCase):
             return f.read()
 
     def test_template_socket_and_service_match_the_broker(self):
-        self.assertIn("ListenStream=/tmp/vtibroker-%U-%i.sock", self.read("tirevive-broker@.socket"))
+        self.assertIn("ListenStream=%t/vtibroker-%U-%i.sock", self.read("tirevive-broker@.socket"))
+        self.assertIn("ListenStream=%t/vtibroker-%U.sock", self.read("tirevive-broker.socket"))  # audit 20
         svc = self.read("tirevive-broker@.service")
         self.assertIn("ExecStart=%h/.local/lib/tirevive/vtibroker -slot %i", svc)
         self.assertIn("Requires=tirevive-broker@%i.socket", svc)

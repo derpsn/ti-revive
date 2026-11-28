@@ -297,7 +297,7 @@ std::vector<EditorRenderer::GraphHandle> EditorRenderer::graph_handles(const Ele
                 {q.x4, q.yt, "", g + "Sustain Time"},
                 {q.x5, q.bottom, g + "Release", ""}};
     }
-    if (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0) {
+    if (is_filter_display(e)) {
         const FilterGeom q = filter_geom(e, x, y, part);
         // the band stop has no vertical handle (E371); the cutoff may be "Offset for FilterLink" as bound
         return {{q.hx, q.hy, p, e.type == "BS4Response" ? "" : g + "Resonance"}};
@@ -538,6 +538,7 @@ void EditorRenderer::arp_edit(Canvas &c, const Element &e, int x, int y, int par
 {
     const Rgba border{192, 192, 192, 255};
     const double a = 0.38;
+    const int cell = std::max(1, e.w / 32); // as arp_grab and arp_step_geometry (review B20: was a fixed 20)
     for (int i = 0; i < 32; i++) {
         std::string st = "Arpeggiator User Pattern/Step " + std::to_string(i + 1) + " ";
         if (!values(st + "Bitfield", part))
@@ -548,7 +549,7 @@ void EditorRenderer::arp_edit(Canvas &c, const Element &e, int x, int y, int par
         while (i + span < 32 &&
                !values("Arpeggiator User Pattern/Step " + std::to_string(i + span + 1) + " Bitfield", part))
             span++;
-        int r = std::min(span * 20 - 1, (int)std::lround(arp_step_width(values(st + "Length", part)) * (double)span));
+        int r = std::min(span * cell - 1, (int)std::lround(arp_step_width(values(st + "Length", part)) * (double)span));
         int cx, bottom;
         arp_step_geometry(e, x, y, i, cx, bottom);
         int top = bottom - vel;
@@ -574,6 +575,8 @@ double EditorRenderer::osc_classic_value(int shape, int pulsewidth, int wave, co
 
 void EditorRenderer::osc_classic(Canvas &c, const Element &e, int x, int y, int part)
 {
+    if (e.w < 3 || e.h < 3) // the columns step by 1 / (w - 2): nothing to draw (review B22: divided by zero)
+        return;
     const std::string &pwp = e.get("Parameter"); // "Oscillator N/Pulsewidth"
     std::string g = pwp.substr(0, pwp.rfind('/') + 1);
     int sh = values(g + "Shape", part), pwv = values(pwp, part), ws = values(g + "WaveSelect", part);
@@ -676,6 +679,17 @@ void EditorRenderer::render(Canvas &c)
     if (layer == 1)
         static_key.clear();
     ValueFn plain;
+    // `values` is the plain function again on every exit, also an exception (review B16): the recording one
+    // refers to `plain` on this stack
+    struct Restore {
+        ValueFn &values, &plain;
+        bool on;
+        ~Restore()
+        {
+            if (on)
+                values = std::move(plain);
+        }
+    } restore{values, plain, deps != nullptr};
     if (deps) { // record the reads (conditions and drawing helpers all go through `values`)
         plain = values;
         values = [this, &plain](const std::string &path, int pt) {
@@ -686,8 +700,6 @@ void EditorRenderer::render(Canvas &c)
     }
     for (auto &e : layout_.elements)
         draw(c, e, 0, 0, -1);
-    if (deps)
-        values = plain;
 }
 
 void EditorRenderer::draw(Canvas &c, const Element &e, int ox, int oy, int inherited)
@@ -725,15 +737,17 @@ void EditorRenderer::draw(Canvas &c, const Element &e, int ox, int oy, int inher
 
     if (e.type == "PatchBrowser")
         browser_numbers(c, e, x, y);
-    void *normal = c.image(e.get("NormalBack"));
-    // inactive controls with a DisabledBack strip use it at full opacity (the translucent "_Trs" look)
-    bool use_disabled = alpha < 1.0 && normal && c.image(e.get("DisabledBack"));
-    if (use_disabled) {
-        normal = c.image(e.get("DisabledBack"));
+    // the picture, chosen once (review B19: the bitmap and the name for its tiling were chosen apart and disagreed
+    // for a pressed inactive control): inactive controls with a DisabledBack strip use it at full opacity (the
+    // translucent "_Trs" look), a pressed control its PressedBack
+    const std::string *back = &e.get("NormalBack");
+    if (alpha < 1.0 && c.image(*back) && c.image(e.get("DisabledBack"))) {
+        back = &e.get("DisabledBack");
         alpha = 1.0;
     }
     if (&e == pressed && c.image(e.get("PressedBack")))
-        normal = c.image(e.get("PressedBack"));
+        back = &e.get("PressedBack");
+    void *normal = c.image(*back);
     if (normal && e.w > 0 && e.h > 0) {
         int frames = std::max(1, c.image_height(normal) / e.h), index = 0;
         if (e.type == "VUSlider") { // MIDI activity of the part's channel (level strip) + volume handle
@@ -752,20 +766,17 @@ void EditorRenderer::draw(Canvas &c, const Element &e, int ox, int oy, int inher
                 index = frames >= 2 && v == atoi(e.get("OnValue").c_str()) ? 1 : 0;
             else if (e.type == "Button" || e.type == "KickButton" || e.type == "DblClkButton") // section headers:
                 index = frames >= 2 && v ? 1 : 0; // frame 1 = locked (red, E378)
-            const std::string &nm = use_disabled ? e.get("DisabledBack")
-                                    : (&e == pressed && c.image(e.get("PressedBack"))) ? e.get("PressedBack")
-                                                                                       : e.get("NormalBack");
-            image(c, nm, normal, index * std::min(e.h, c.image_height(normal)), std::min(e.h, c.image_height(normal)), x, y,
+            image(c, *back, normal, index * std::min(e.h, c.image_height(normal)), std::min(e.h, c.image_height(normal)), x, y,
                   e.w, e.h, alpha);
         }
     } else if (e.get("Transparent") == "false" && e.back.a)
         c.fill(x, y, e.w, e.h, e.back);
 
-    bool display = (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0) || e.type == "OscClassicShape" ||
+    bool display = is_filter_display(e) || e.type == "OscClassicShape" ||
                    e.type == "OscHypersawShape" || e.type == "ArpEdit" || e.type == "ADSTREnvelope";
     if (display)
         c.push_clip(x, y, e.w, e.h);
-    if (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0 && !param.empty())
+    if (is_filter_display(e) && !param.empty())
         filter_response(c, e, x, y, pt);
     if (e.type == "OscClassicShape" && !param.empty())
         osc_classic(c, e, x, y, pt);
@@ -840,7 +851,7 @@ bool EditorRenderer::hit(const Element &e, int ox, int oy, int inherited, int px
     int x = ox + e.x, y = oy + e.y;
     bool inside = px >= x && px < x + e.w && py >= y && py < y + e.h;
     if (slack < 0) // graph_hit_test: only the filter / envelope displays
-        inside = inside && (e.type == "ADSTREnvelope" || (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0));
+        inside = inside && (e.type == "ADSTREnvelope" || is_filter_display(e));
     if (slack > 0) // the second pass: only the small arrow buttons, a few px taller
         inside = (e.type == "IncButton" || e.type == "DecButton") && e.h < 12 && px >= x && px < x + e.w &&
                  py >= y - slack && py < y + e.h + slack;
@@ -852,8 +863,6 @@ bool EditorRenderer::hit(const Element &e, int ox, int oy, int inherited, int px
         out.x = x, out.y = y, out.part = pt;
         out.disabled = disabled;
         out.why = disabled ? c : std::string();
-        out.depends = disabled ? std::vector<std::string>() : inactive_inputs(e.get("Parameter"), pt);
-        out.inactive = disabled || !param_active(e.get("Parameter"), pt);
     }
     for (auto &ch : e.children)
         hit(ch, x, y, own_part(e) >= 0 ? own_part(e) : inherited, px, py, out, include_disabled, c, menus_only, slack);
@@ -935,6 +944,18 @@ std::vector<Hit> EditorRenderer::visible_controls(bool include_disabled) const
     return out;
 }
 
+// what only the winner of a hit walk needs (review B21: was evaluated for every element under the point, each of
+// which a later one overrides)
+Hit EditorRenderer::with_details(Hit h) const
+{
+    if (h.element) {
+        const std::string &param = h.element->get("Parameter");
+        h.depends = h.disabled ? std::vector<std::string>() : inactive_inputs(param, h.part);
+        h.inactive = h.disabled || !param_active(param, h.part);
+    }
+    return h;
+}
+
 Hit EditorRenderer::hit_test(int px, int py, bool include_disabled) const
 {
     Hit h;
@@ -945,7 +966,7 @@ Hit EditorRenderer::hit_test(int px, int py, bool include_disabled) const
     if (!h.element)
         for (auto &e : layout_.elements)
             hit(e, 0, 0, -1, px, py, h, include_disabled, std::string(), false, 4);
-    return h;
+    return with_details(h);
 }
 
 Hit EditorRenderer::graph_hit_test(int px, int py) const
@@ -961,7 +982,7 @@ Hit EditorRenderer::graph_hit_test(int px, int py) const
     if (i < 0)
         return Hit{};
     const GraphHandle g = graph_grabs(*h.element, h.x, h.y, h.part)[(size_t)i];
-    return g.xparam.empty() && g.yparam.empty() ? Hit{} : h;
+    return g.xparam.empty() && g.yparam.empty() ? Hit{} : with_details(h);
 }
 
 Hit EditorRenderer::help_hit_test(int px, int py) const
@@ -969,7 +990,7 @@ Hit EditorRenderer::help_hit_test(int px, int py) const
     Hit h;
     for (auto &e : layout_.elements)
         hit(e, 0, 0, -1, px, py, h, true, std::string(), false, -1);
-    return h.element ? h : hit_test(px, py, true);
+    return h.element ? with_details(h) : hit_test(px, py, true);
 }
 
 Hit EditorRenderer::menu_hit_test(int px, int py) const
@@ -977,7 +998,7 @@ Hit EditorRenderer::menu_hit_test(int px, int py) const
     Hit h;
     for (auto &e : layout_.elements)
         hit(e, 0, 0, -1, px, py, h, false, std::string(), true);
-    return h;
+    return with_details(h);
 }
 
 std::pair<int, int> EditorRenderer::menu_anchor(const Hit &h)

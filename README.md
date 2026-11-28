@@ -281,9 +281,11 @@ for the Virus.
 reports several notes in a row that arrived too late for their time stamp while your DAW plays. Stop and Play clears
 it. If it comes back, use a USB port the Virus does not share with other devices; the original gives the same advice. On macOS, notes could come late after an export in 0.8.25 and 0.8.26; since 0.8.27 the plug-in fills the audio cycles Core Audio skips during an export. In 0.8.30 a few notes of an export at a small buffer size (128 samples) still came 3-6 ms late and the message appeared; fixed in 0.8.31 (an export at 48 kHz and 128 samples: 256 of 256 notes on the grid).
 
-**Start playback slightly before the first note.** The plug-in sends notes to the Virus ahead of time to make up
-for the USB round trip; right at Play, notes in the first quarter second can come late or be skipped. This was the
-same with Access' own driver.
+**Start playback a bar or two before the first note (pre-roll or count-in).** The plug-in sends notes to the Virus
+ahead of time to make up for the USB round trip; right at Play, notes in the first quarter second can come late or be
+skipped. Some DAWs (Logic, REAPER) also process ahead at Play, so a start right on a note can crackle slightly and put
+the first 2 or 3 notes a little late. This was the same with Access' own plug-in and driver; Access' manual also
+advises two bars before the first notes, and a pre-roll of two bars when bouncing. (E573, E605)
 
 **All systems**
 
@@ -555,7 +557,7 @@ hardware (TI2 Desktop) - details and raw numbers in [`findings/evidence.md`](fin
   automation lanes) passes. One extreme note flood in a test of ours hung it too.
 - **macOS, after a sleep:** On macOS the Virus' audio can have dropouts after the Mac wakes from sleep: macOS's USB audio can leave it with gaps until the Virus is plugged in again. Since 0.8.39 the plug-in then reconnects the Virus by itself, at most once a minute. If dropouts remain after waking, unplug and replug the Virus.
 - **Dense projects:** with three heavy patches (Main LD, Hrd LD 1, Super Saw) on three channels some notes are lost; any two of them play cleanly. The original Virus Control loses the same notes on the same Virus, so this is the Virus' own limit, not TI Revive's.
-- Checked with ThreadSanitizer and AddressSanitizer (one race in the broker connection found and fixed); 1081 unit
+- Checked with ThreadSanitizer and AddressSanitizer (one race in the broker connection found and fixed); 1127 unit
   tests run with every release build on Windows and Linux, plus two end-to-end tests on Linux in a virtual display
   (two editors of a duplicated track; the Control Center's window and close button).
 
@@ -743,7 +745,7 @@ measurements: [`findings/design-linux.md`](findings/design-linux.md), evidence E
 | MSI + setup.exe (GitHub Actions build) | done |
 | 0.2-0.7.x: user-mode driver emulation for the original plug-in, ASIO wrapper, Control Center | done, replaced by 0.8.0 |
 | **macOS** | |
-| USB broker (no Access kernel extension); the MIDI driver stand-in of the classic path is opt-in since 0.8.2 (`VTI_BROKER_MIDISHIM=1`) | done |
+| USB broker (no Access kernel extension) | done |
 | Installer (.pkg + Access file setup, GitHub Actions build) | done |
 | 0.5-0.7.x: bridge (VST3 + AU) with a Rosetta helper hosting the original, own libVirusUSB | done, replaced by 0.8.x |
 | **Linux** | |
@@ -768,12 +770,11 @@ workflow (job `native-linux`). Details: [`native/README.md`](native/README.md).
 
 ```sh
 make -C src/broker      # vtibroker.exe + test tools (vtiprobe, vtisend, vtiflash), Linux broker / libusb probe
-make -C src/wrapper     # the classic 0.7.x Windows plug-in (not shipped since 0.8.0)
+make -C src/wrapper     # the 0.7.x wrapper for the original under Wine + the test host vtihost (measurements only)
 make -C src/vtihook     # research tools: IOCTL tracer, injector
 ```
 
-The MSI is built with WiX 5 on Windows (`src/installer/build.ps1 -NativeBin <folder>`); `scripts/win11/build-msi.sh`
-does the same round trip through a local Windows 11 build VM.
+The MSI is built with WiX 5 on Windows (`src/installer/build.ps1 -NativeBin <folder>`).
 
 **macOS package.** On a Mac with the Xcode Command Line Tools and the (MIT-licensed) VST3 `pluginterfaces` next to the
 repository: `scripts/mac-build-release.sh <repo> <version>` builds `TI-Revive-<version>-mac.zip` (native plug-in,
@@ -790,11 +791,12 @@ Branch pushes and pull requests do not build.
 |---|---|
 | `native/` | the native plug-in "TI Revive" (VST3, all platforms) and the ASIO driver "TI Revive Audio": `native/README.md`, `native/docs/architecture.md` |
 | `findings/` | the research: `spec.md` (protocol), `evidence.md` (every observation with its source), `claims.md` (community claims checked), `design*.md`, `HANDOFF.md` (current state), `log/` (working log) |
-| `src/broker/` | device access (WinUSB / libusb / named-pipe backends), broker (Windows and macOS; the macOS MIDI driver stand-in for the classic plug-in is opt-in), hardware test tools |
-| `src/wrapper/` | the classic Windows plug-in of 0.7.x (driver-interface emulation, VST3 wrapper, ASIO wrapper, Control Center launcher); not shipped since 0.8.0 |
+| `src/broker/` | device access (WinUSB / libusb / named-pipe backends), broker (Windows, macOS and Linux), hardware test tools |
+| `src/wrapper/` | what is left of the 0.7.x Windows plug-in: the wrapper that runs the original under Wine (driver-interface emulation `vtiemu`) and the test host `vtihost`, kept for the comparison measurements; not shipped since 0.8.0 |
+| `src/installer-linux/` | Linux: install.sh, uninstall.sh, the systemd units and the udev rule |
+| `src/midiports-win/` | Windows: the MIDI ports "TI Revive Synth" / "TI Revive MIDI" (Windows MIDI Services) |
 | `src/inf/` | Windows: the WinUSB driver package |
 | `src/installer/` | Windows: MSI (WiX), driver script, `tirevive-access.ps1` (unpacks the Access files) |
-| `src/mac/` | macOS, the classic 0.5-0.7.x path (not shipped since 0.8.x, kept for reference): `libvirususb/` (replacement libVirusUSB.dylib), `bridge/` (VST3/AU bridge), `helper/` (Rosetta host), `common/` (bridge protocol), diagnostics tools |
 | `src/installer-mac/` | macOS: package scripts, Access installer script, uninstaller, README-mac |
 | `src/vtihook/` | research tools: IOCTL tracer with AudioSM monitor, process memory readers |
 | `scripts/` | capture/decode tools (usbmon + tshark), Windows 11 VM tooling, Mac build and lab scripts |

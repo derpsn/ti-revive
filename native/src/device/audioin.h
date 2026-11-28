@@ -12,9 +12,13 @@ namespace vti {
 class AudioIn {
 public:
     static constexpr int IN_CHANNELS = 6; // ring order: analog in L/R, USB 1 L/R, USB 2 L/R
+    AudioIn() = default;
+    AudioIn(const AudioIn &) = delete; // owns its mapping (and on macOS the Core Audio reader): a copy would free it twice
+    AudioIn &operator=(const AudioIn &) = delete;
     ~AudioIn();
     // Linux: map /dev/shm/tirevive-audio-<uid> (or the POSIX shm `linux_name`: unit tests with their own ring);
-    // Windows: the broker's mapping; macOS: Core Audio input, the device set to `rate` (44100/48000) when it differs
+    // Windows: the broker's mapping; macOS: Core Audio input, the device set to `rate` (44100/48000) when it differs.
+    // An open AudioIn is closed first.
     bool open(const char *linux_name = nullptr, int rate = 44100);
     void close();
     // macOS (libusb-audio test, E511): read the broker's ring as on Linux instead of Core Audio; set before open()

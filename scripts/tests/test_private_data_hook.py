@@ -69,7 +69,7 @@ class Rules(Base):
         self.assertIn("/home/alice", r.stderr)
 
     def test_placeholder_homes_pass(self):
-        self.assertEqual(self.staged("/home/runner/work /home/user/x /home/u/.local ~/x $HOME/x /home/<you>\n")
+        self.assertEqual(self.staged("/home/runner/work /home/user/x /home/u/.local /home/x C:/Users/x ~/x $HOME/x /home/<you>\n")
                          .returncode, 0)
 
     def test_mac_and_windows_homes_block(self):
@@ -101,6 +101,17 @@ class Rules(Base):
         self.assertEqual(self.staged("mail me at jane.doe@mail.example.net\n").returncode, 1)
         self.assertEqual(self.staged("callmederpsn@proton.me 1+x@users.noreply.github.com a@example.com\n")
                          .returncode, 0)
+
+    def test_more_home_and_address_shapes_block(self):  # audit 2026-11-28 #2, one line per shape
+        for line in ("C:/Users/alice/AppData", "file:///home/alice/log.txt", "/home/Alice/x", "tailnet 100.101.5.7",
+                     "ula fd12:3456:789a::1", "ula fc00:0:0:1::2", "x@derpsn.evil.com", "derpsn.fan@mail.example.net",
+                     "noreply.alice@mail.example.net", "10.15.7.1"):
+            self.assertEqual(self.staged(line + "\n").returncode, 1, line)
+
+    def test_shapes_that_look_private_but_are_not_pass(self):
+        for line in ("100.63.1.1 and 100.128.0.1", "macOS 10.15.7.1", "version 10.0.0.5", "fe80::1 2001:db8::1 the range fc00::/7",
+                     "1+alice@users.noreply.github.com", "Co-Authored-By: Claude <noreply@anthropic.com>", "file:///home/user/x"):
+            self.assertEqual(self.staged(line + "\n").returncode, 0, line)
 
     def test_personal_word_blocks_case_insensitive(self):
         r = self.staged("written by SecretName\n")
@@ -261,6 +272,35 @@ class ClaudeHook(Base):
     def test_heredoc_not_read_by_gh_passes(self):
         cmd = "python3 - <<'EOF'\nprint('the hook checks gh posts; secretname stays local')\nEOF"
         self.assertEqual(self.bash(cmd).returncode, 0)
+
+    def test_no_verify_refused(self):  # audit 2026-11-28 #1: it would skip the git hooks
+        for cmd in ("git commit --no-verify -m x", "git commit -n -m x", "git commit -anm x", "git push --no-verify",
+                    "git -C /tmp/r commit --no-verify -m x", "timeout 30 git push --no-verify origin b"):
+            r = self.bash(cmd)
+            self.assertEqual(r.returncode, 2, cmd)
+            self.assertIn("no-verify", r.stderr)
+
+    def test_no_verify_lookalikes_pass(self):
+        for cmd in ('git commit -m "-n"', "git push -n origin b", 'git commit -m "no --no-verify here"',
+                    "git log --no-verify", "git commit -F - <<'EOF'\nhooks: refuse --no-verify\nEOF"):
+            self.assertEqual(self.bash(cmd).returncode, 0, cmd)
+
+    def test_wrapped_commands_are_scanned(self):  # audit 2026-11-28 #1
+        for cmd in ('timeout 30 gh issue comment 1 --body "from secretname"',
+                    'env A=b gh issue comment 1 --body "from secretname"',
+                    'command gh issue comment 1 --body "from secretname"',
+                    '(gh issue comment 1 --body "from secretname")',
+                    'echo $(gh issue comment 1 --body "from secretname")',
+                    'git -C /tmp/r commit -m "from secretname"',
+                    'git -c user.name=x commit -m "from secretname"',
+                    'flock /tmp/l git commit -m "from secretname"',
+                    'flock -w 5 /tmp/l timeout 9 git commit -m "from secretname"',
+                    'bash -c \'gh issue comment 1 --body "from secretname"\''):
+            self.assertEqual(self.bash(cmd).returncode, 2, cmd)
+
+    def test_wrapped_clean_commands_pass(self):
+        self.assertEqual(self.bash('flock /tmp/l git commit -m "tools: fix (audit 1)"').returncode, 0)
+        self.assertEqual(self.bash("timeout 30 gh issue view 41").returncode, 0)
 
     def test_bad_json_passes(self):
         self.assertEqual(self.run_hook(stdin="not json").returncode, 0)

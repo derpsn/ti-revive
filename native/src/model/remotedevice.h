@@ -102,6 +102,7 @@ std::string automation_title(const class RemoteDevice &dev, const AutomationEntr
 
 class RemoteDevice {
 public:
+    static constexpr long NUM_LIMIT = 1 << 20; // XML numbers are clamped to +-this (review B3)
     bool load(const std::vector<uint8_t> &xml, std::string &error);
 
     std::string device, version;

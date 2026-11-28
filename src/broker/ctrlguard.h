@@ -32,9 +32,11 @@ typedef struct {
     uint8_t n[16];    // bytes of it seen (capped at 9), 0 = none going on
 } vti_sxwatch;
 
-// 1 = refuse the whole write
+// 1 = refuse the whole write; also one that is not whole 4-byte packets (its tail would pass unchecked, review A1)
 static inline int vti_write_blocked(vti_sxwatch *w, const uint8_t *d, int len)
 {
+    if (len % 4)
+        return 1;
     int hit = 0;
     for (int i = 0; i + 3 < len; i += 4) {
         const int cin = d[i] & 0xF;

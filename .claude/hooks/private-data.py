@@ -11,7 +11,8 @@ Two layers, one rule set:
               ends up in the public history.
   Claude Code PreToolUse (Bash), JSON on stdin (exit 2 blocks the call): gh posts that never pass through git
               (issue/PR comments, PR and release texts, --body/--body-file/-F/--notes-file, gh api fields) and the
-              message of an inline `git commit -m`.
+              message of an inline `git commit -m`. Wrappers (timeout, env, flock, sh -c, ( ), $( )) are seen through,
+              and `git commit/push --no-verify` is refused, because it would skip the git hooks.
 
 Rules: generic ones below (home folders with a real user name, private IP addresses, e-mail addresses), plus the
 personal words in work/private-patterns.txt (git-ignored, one per line; "re:" starts a regular expression; # starts
@@ -31,18 +32,29 @@ ZERO = "0" * 40
 # The hook's own source and its test fixtures contain example paths and addresses on purpose.
 EXEMPT_FILES = {".claude/hooks/private-data.py", "scripts/tests/test_private_data_hook.py"}
 
-PLACEHOLDER_USERS = {"runner", "user", "u", "you", "me", "name", "username", "shared", "public", "default",
+PLACEHOLDER_USERS = {"runner", "user", "u", "x", "you", "me", "name", "username", "shared", "public", "default",
                      "example"}
 NOT_EMAIL_TLDS = {"png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "pdf"}
-ALLOWED_EMAIL = re.compile(r"(noreply|derpsn|^git@github\.com$|@example\.(com|org)$)", re.I)
+# the project identity, GitHub's and the AI co-author trailer's noreply addresses and placeholders; anchored, so
+# x@derpsn.evil.com still counts
+ALLOWED_EMAIL = re.compile(r"^(?:callmederpsn@proton\.me|[\w.+-]+@users\.noreply\.github\.com|git@github\.com"
+                           r"|noreply@anthropic\.com"
+                           r"|[\w.+-]+@example\.(?:com|org))$", re.I)
+# "macOS 10.15.7.1" is a version, not an address (a bare 10.15.7.1 still counts: it could be either)
+VERSION_BEFORE = re.compile(r"(?:macos|os x|version|ver\.?|build|firmware|\bv)\s*$", re.I)
 
 GENERIC = [
     # also under a prefix (/var/home, /mnt/c/Users in WSL, /System/Volumes/Data/Users), not inside a URL
-    ("home folder with a user name", re.compile(r"(?<![\w.:/])(?:/[\w.-]+)*?/home/([a-z_][a-z0-9_.-]*)")),
+    ("home folder with a user name", re.compile(r"(?<![\w.:/])(?:/[\w.-]+)*?/home/([A-Za-z_][\w.-]*)")),
     ("macOS home folder with a user name", re.compile(r"(?<![\w.:/])(?:/[\w.-]+)*?/Users/([A-Za-z][\w.-]*)")),
-    ("Windows home folder with a user name", re.compile(r"\b[A-Za-z]:\\{1,2}Users\\{1,2}([A-Za-z][\w.-]*)", re.I)),
+    ("home folder in a file:// link", re.compile(r"file://(?:/[\w.-]+)*?/(?:home|Users)/([A-Za-z_][\w.-]*)")),
+    ("Windows home folder with a user name", re.compile(r"\b[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}([A-Za-z][\w.-]*)",
+                                                         re.I)),
+    # RFC 1918 and 100.64.0.0/10 (carrier-grade NAT, Tailscale)
     ("private IP address", re.compile(
-        r"(?<![\d.])(?:192\.168|10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}(?![\d.])")),
+        r"(?<![\d.])(?:192\.168|10\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7]))"
+        r"\.\d{1,3}\.\d{1,3}(?![\d.])")),
+    ("private IPv6 address", re.compile(r"(?<![\w:])f[cd][0-9a-f]{2}(?::[0-9a-f]{0,4}){1,6}:[0-9a-f]{1,4}(?![\w:])", re.I)),
     ("e-mail address", re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.([A-Za-z]{2,})\b")),
 ]
 
@@ -85,6 +97,9 @@ def find(text, personal):
         for m in rx.finditer(text):
             if name == "e-mail address":
                 if m.group(1).lower() in NOT_EMAIL_TLDS or ALLOWED_EMAIL.search(m.group(0)):
+                    continue
+            elif name == "private IP address":
+                if VERSION_BEFORE.search(text[max(0, m.start() - 12):m.start()]):
                     continue
             elif "IP" not in name and m.group(1).lower() in PLACEHOLDER_USERS:
                 continue
@@ -194,13 +209,14 @@ BODY_FLAGS = {"--body", "-b", "--notes", "-n", "--title", "-t", "-m", "--message
 
 
 def segments(command):
-    """The simple commands of a shell line, split at ; & | (quotes respected)."""
-    lex = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+    """The simple commands of a shell line, split at ; & | ( ) and backticks (quotes respected), so the commands
+    inside ( ... ), $( ... ) and `...` count on their own."""
+    lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()`")
     lex.whitespace_split = True
     seg = []
     try:
         for tok in lex:
-            if tok and set(tok) <= set(";&|"):
+            if tok and set(tok) <= set(";&|()`"):
                 if seg:
                     yield seg
                 seg = []
@@ -220,14 +236,94 @@ def read_file(path):
         return ""
 
 
+# Commands that run the command after them: name -> options that take a value, number of positional arguments
+WRAPPERS = {"timeout": ({"-s", "--signal", "-k", "--kill-after"}, 1), "env": ({"-u", "--unset", "-C", "--chdir"}, 0),
+            "command": (set(), 0), "exec": (set(), 0), "nice": ({"-n", "--adjustment"}, 0), "nohup": (set(), 0),
+            "time": (set(), 0), "sudo": ({"-u", "-g", "-h", "-p", "-C"}, 0),
+            "flock": ({"-w", "--timeout", "-E", "--conflict-exit-code"}, 1)}
+SHELLS = {"sh", "bash", "zsh", "dash"}
+# git commit options whose value is the next word (so "-m -n" is a message, not --no-verify)
+COMMIT_VALUE_FLAGS = {"-m", "--message", "-F", "--file", "-C", "--reuse-message", "-c", "--reedit-message", "-t",
+                      "--template", "--author", "--date", "--fixup", "--squash", "--trailer", "--cleanup"}
+
+
+def unwrap(seg):
+    """The command a wrapper (VAR=x, timeout, env, flock, ...) runs; ["sh", "-c", CMD] for flock -c CMD."""
+    while seg:
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", seg[0]):  # VAR=value, also after env
+            seg = seg[1:]
+            continue
+        name = os.path.basename(seg[0])
+        if name not in WRAPPERS:
+            return seg
+        value_opts, positional = WRAPPERS[name]
+        seg = seg[1:]
+        while seg and seg[0].startswith("-") and seg[0] != "-":
+            opt = seg.pop(0)
+            if opt == "--":
+                break
+            if name == "flock" and opt in ("-c", "--command"):
+                return ["sh", "-c", seg[0]] if seg else []
+            if opt in value_opts and seg:
+                seg.pop(0)
+        seg = seg[positional:]
+    return seg
+
+
+def simple_commands(command, depth=0):
+    """Every simple command of a shell line with its wrappers removed, also inside sh -c '...'."""
+    for seg in segments(command):
+        seg = unwrap(seg)
+        if seg and os.path.basename(seg[0]) in SHELLS and "-c" in seg[1:-1]:
+            if depth < 3:
+                yield from simple_commands(seg[seg.index("-c") + 1], depth + 1)
+        elif seg:
+            yield seg
+
+
+def git_subcommand(seg):
+    """(subcommand, its index) of a git command line, past -C DIR, -c KEY=VALUE and other global options."""
+    i = 1
+    while i < len(seg):
+        if seg[i] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace"):
+            i += 2
+        elif seg[i].startswith("-"):
+            i += 1
+        else:
+            return seg[i], i
+    return "", i
+
+
+def skips_hooks(seg):
+    """True for git commit/push with --no-verify (commit: also -n, alone or in a cluster like -anm)."""
+    if not seg or seg[0] != "git":
+        return False
+    sub, i = git_subcommand(seg)
+    if sub not in ("commit", "push"):
+        return False
+    args = iter(seg[i + 1:])
+    for tok in args:
+        if tok == "--" or tok.startswith("<<"):  # after << comes the heredoc text, not options
+            break
+        if tok == "--no-verify":
+            return True
+        if sub != "commit":
+            continue
+        if tok in COMMIT_VALUE_FLAGS:
+            next(args, None)
+        elif re.match(r"^-[A-Za-z]+$", tok):
+            # a cluster ends at its first option with a value (-mn is the message "n")
+            if "n" in re.split(r"[mFCctu]", tok[1:], maxsplit=1)[0]:
+                return True
+    return False
+
+
 def texts_to_check(seg):
     """The texts a gh or git commit command would publish (file contents, not their paths)."""
-    while seg and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", seg[0]):  # leading VAR=value
-        seg = seg[1:]
     if not seg:
         return []
     is_gh = seg[0] == "gh"
-    is_commit = seg[0] == "git" and "commit" in seg[1:3]
+    is_commit = seg[0] == "git" and git_subcommand(seg)[0] == "commit"
     if not (is_gh or is_commit):
         return []
     out = []
@@ -258,10 +354,12 @@ def claude_mode(personal):
         command = json.load(sys.stdin).get("tool_input", {}).get("command", "")
     except (ValueError, AttributeError):
         return 0
-    if not command or not re.search(r"(^|[\s;&|(])(gh|git)\s", command):
+    if not command or not re.search(r"""(^|[\s;&|(`'"])(gh|git)\s""", command):
         return 0
     findings = []
-    for seg in segments(command):
+    for seg in simple_commands(command):
+        if skips_hooks(seg):
+            findings.append("git commit/push --no-verify skips the private-data git hooks; commit without it")
         for text in texts_to_check(seg):
             findings += scan_text(text, personal, " ".join(seg[:2]))
         if seg[:1] != ["gh"] or not any(a in BODY_FILE_FLAGS and b == "-" for a, b in zip(seg, seg[1:])):

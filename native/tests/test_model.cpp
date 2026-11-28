@@ -198,3 +198,69 @@ TEST(dump_fast_path_equals_full_path)
             CHECK(a == b);
         }
 }
+
+// a parameter SysEx template with every transport byte kind; `tag` sets its fixed byte, `map` the controller index
+static bool load_transport(RemoteDevice &d, const char *tag, const char *map)
+{
+    std::string xml = std::string(R"(<?xml version="1.0"?><Remotedevice device="T" version="1"><ParameterSets>
+ <ParameterSet name="Osc"><Parameter name="Shape" part="all" defaultmessage="P"/></ParameterSet></ParameterSets>
+ <MIDIMessages><MIDIMessage id="P" name="P">
+  <byte index="0" content="sysexstart"/><byte index="1" content="byte" tag=")") + tag + R"("/>
+  <byte index="2" content="deviceid"/><byte index="3" content="part"/>
+  <byte index="4" content="controllerid"><parameter mapindex=")" + map + R"(" content="Osc/Shape"/></byte>
+  <byte index="5" content="value"/><byte index="6" content="sysexend"/>
+ </MIDIMessage></MIDIMessages></Remotedevice>)";
+    std::string err;
+    return d.load(Bytes(xml.begin(), xml.end()), err);
+}
+
+// nothing outside 7 bits reaches the wire as a data byte (review B1): such a message is not built at all
+TEST(model_encode_refuses_bytes_above_7f)
+{
+    RemoteDevice d;
+    CHECK(load_transport(d, "114", "5"));
+    uint8_t m[16];
+    CHECK_EQ(d.encode_into("Osc/Shape", 3, 2, m, sizeof m, 0x10), 7u);
+    CHECK(m[1] == 114 && m[2] == 0x10 && m[3] == 2 && m[4] == 5 && m[5] == 3 && m[6] == 0xF7);
+    CHECK_EQ(d.encode_into("Osc/Shape", 3, 2, m, sizeof m, 0x80), 0u);  // device id
+    CHECK_EQ(d.encode_into("Osc/Shape", 3, 0x80, m, sizeof m, 0x10), 0u); // part
+    CHECK_EQ(d.encode_into("Osc/Shape", 3, -1, m, sizeof m, 0x10), 0u);
+    RemoteDevice c;
+    CHECK(load_transport(c, "114", "200"));
+    CHECK_EQ(c.encode_into("Osc/Shape", 3, 2, m, sizeof m, 0x10), 0u);   // controller id
+    RemoteDevice t;
+    CHECK(!load_transport(t, "200", "5"));                               // a fixed byte that is no MIDI byte
+    CHECK(!load_transport(t, "300", "5"));
+}
+
+// review B3/B6: numbers from the XML are clamped to what the code can use: shift 0..7 and mask 0..0xFF (a larger
+// shift is undefined behaviour in update_dump), min/max/defaults small enough for the randomizer's arithmetic, and
+// a number too long for an int does not wrap around
+TEST(model_xml_numbers_are_bounded)
+{
+    static const char *xml = R"(<?xml version="1.0"?>
+<Remotedevice device="T" version="1">
+ <ParameterSets><ParameterSet name="Osc">
+  <Parameter name="Shape" minValue="-99999999999" maxValue="99999999999" defaultValue="99999999999" part="all"/>
+  <Parameter name="Chan" minValue="0" maxValue="15" valuelist="Chan" part="all"/>
+ </ParameterSet></ParameterSets>
+ <Valuelists><Valuelist name="Chan"><Entry index="0">01</Entry><Entry index="1">02</Entry></Valuelist></Valuelists>
+ <MIDIMessages><MIDIMessage id="D" name="D">
+  <byte index="0" content="Osc/Shape" mask="4096" shift="40"/>
+  <byte index="1" content="Osc/Shape" mask="-7" shift="-3"/>
+ </MIDIMessage></MIDIMessages>
+</Remotedevice>)";
+    RemoteDevice d;
+    std::string err;
+    CHECK(d.load(Bytes(xml, xml + strlen(xml)), err));
+    const Parameter *p = d.find("Osc/Shape");
+    CHECK(p && p->min == -RemoteDevice::NUM_LIMIT && p->max == RemoteDevice::NUM_LIMIT && p->def == RemoteDevice::NUM_LIMIT);
+    const MidiMessage *m = d.message("D");
+    CHECK(m && m->bytes.size() == 2);
+    if (m && m->bytes.size() == 2) {
+        CHECK(m->bytes[0].mask == 0xFF && m->bytes[0].shift == 7);
+        CHECK(m->bytes[1].mask == -1 && m->bytes[1].shift == 0); // negative = no mask
+    }
+    CHECK_EQ(d.value_of("Osc/Shape", "99999999999"), -1); // does not fit an int: no value
+    CHECK_EQ(d.value_of("Osc/Chan", "03"), 2);              // a 1-based numbered list
+}

@@ -14,6 +14,7 @@
 #include "nerdmode.h"
 #include "optionspage.h"
 #include "skinpage.h"
+#include "busygate.h"
 #include "model/remotedevice.h"
 #include "vstgui/lib/cfileselector.h"
 #include "vstgui/lib/cframe.h"
@@ -121,7 +122,7 @@ public:
                                           [this](std::function<void(const std::string &)> st) {
                                               choose_restore(std::move(st));
                                           },
-                                          [this] { show_page(kOptionsPage); }},
+                                          [this] { show_page(kOptionsPage); }, [this] { stop_ = true; }},
                                          err);
         if (skin_)
             frame_->addView(skin_);
@@ -201,6 +202,11 @@ private:
     {
         stop_ = true;
         timer_ = nullptr;
+        // the pages' own timers too (review A28): theirs ran on after the platform layer was gone like the app's did
+        if (skin_)
+            tirevive::set_skin_page_active(skin_, false);
+        if (nerd_)
+            tirevive::set_nerd_page_active(nerd_, false);
     }
 
     WindowPtr window_;
@@ -241,7 +247,7 @@ private:
     CTextButton *buttons_[8] = {};
     Shared sh_;
     std::thread worker_;
-    std::atomic<bool> busy_{false}, stop_{false};
+    std::atomic<bool> stop_{false}; // busy: tirevive::cc_busy(), shared with the Access look
 
     CTextLabel *label(CCoord y, CCoord h, const char *text, const CColor &color, CFontRef font = kNormalFont,
                       CCoord x = M, CCoord w = W - 2 * M)
@@ -343,7 +349,7 @@ private:
             printf("TI Revive Control Center: window %dx%d\n", (int)win_size_.x, (int)win_size_.y); // gui_test.sh
             fflush(stdout);
         }
-        bool busy = busy_;
+        bool busy = tirevive::cc_busy(); // also an action of the Access look (review A26)
         for (int i : {0, 1, 2, 3, 4, 7}) { // while an action runs only Cancel; otherwise everything but Cancel
             bool on = (i == 2) == busy;
             buttons_[i]->setMouseEnabled(on);
@@ -377,16 +383,19 @@ private:
         if (worker_.joinable())
             worker_.join();
     }
-    template <class F> void run(F &&f)
+    template <class F> bool run(F &&f)
     {
-        if (busy_.exchange(true))
-            return;
+        if (tirevive::cc_busy().exchange(true)) { // one action at a time, the Access look's too (review A26, A33)
+            set(&Shared::status, tirevive::kBusyNote);
+            return false;
+        }
         join();
         stop_ = false;
         worker_ = std::thread([this, f = std::forward<F>(f)] {
             f();
-            busy_ = false;
+            tirevive::cc_busy() = false;
         });
+        return true;
     }
 
     // a broker connection for one action; false (and the reason in the device line) if there is no Virus for us
@@ -540,7 +549,7 @@ private:
     void restore(int bank, std::shared_ptr<vti::PatchLibrary> lib, const std::string &name,
                  std::function<void(const std::string &)> status)
     {
-        run([this, bank, lib, name, status] {
+        const bool started = run([this, bank, lib, name, status] {
             const char b = (char)('A' + bank - 1);
             vti::Broker broker;
             if (!connect(broker))
@@ -564,6 +573,8 @@ private:
                 status(std::string("RAM ") + b + " not restored completely (" + std::to_string(written) +
                                          " written): " + err);
         });
+        if (!started) // the Access look's status line too (review A33)
+            status(tirevive::kBusyNote);
     }
 
     void choose_folder()

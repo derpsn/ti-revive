@@ -58,7 +58,7 @@ int vti_write_keep(vti *v, uint8_t ep, const uint8_t *data, int len, vti_keep_fn
 int vti_control(vti *v, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint8_t *data,
                 uint16_t len);
 
-// Broker audio (vticore_pipe.c only, protocol 2): register (on = 1) the named auto-reset event `event_name`
+// Broker audio (vticore_sock.c only): register (on = 1) the named auto-reset event `event_name`
 // to be signalled for every block appended to the shared input ring (vtiaudioshm.h), or unregister (on = 0).
 // Returns 1 = streaming, 0 = no WinUSB audio function, -1 = not supported (older broker, direct backends).
 int vti_audio(vti *v, int on, const char *event_name);

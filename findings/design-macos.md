@@ -123,6 +123,7 @@ plug-in bridges like jBridge / AudioGridder do) - the hardest part, to prototype
 
 `broker_control` serializes the shared reply slot through send, wait and reply consumption.
 The socket-pair test exercises 32 concurrent callers against buffered, in-order broker replies.
+(The 0.7.x libVirusUSB and this test were removed in 0.8.45 with `src/mac/`; they are in the git history.)
 On Linux (C++17 compiler required):
 
 ```sh

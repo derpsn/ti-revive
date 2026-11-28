@@ -3,8 +3,7 @@
 #   -Src     repository src\ folder (inf\, installer\)
 #   -Out     output folder
 #   -Version MSI ProductVersion (major.minor.build)
-# Used by the GitHub workflow (.github/workflows/build.yml) and by scripts/win11/build-msi.sh (build VM, where
-# .NET and WiX live in C:\build\dotnet and C:\build\wix).
+# Used by the GitHub workflow (.github/workflows/build.yml).
 param([string]$Root = 'C:\build\tirevive', [string]$Bin, [string]$Src, [string]$Out, [string]$Version = '0.1.1',
       [switch]$Bundle,
       [string]$NativeBin) # -NativeBin: folder with "TI Revive.vst3\" + VirusTINative_ASIO.dll + tirevive-cc.exe + TIReviveControlCenter.exe (native plug-in) # -Bundle: also TI Revive setup.exe around the MSI (TIReviveSetup.wxs, needs WixToolset.BootstrapperApplications.wixext)

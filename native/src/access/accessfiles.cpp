@@ -9,26 +9,21 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 
 namespace fs = std::filesystem;
 
 namespace vti {
 
-static std::string lower(std::string s)
-{
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
-    return s;
-}
+static std::string lower(std::string s) { return ascii_lower(std::move(s)); }
 
-// `path` as UTF-8 (#35)
-static bool read_file(const std::string &path, std::vector<uint8_t> &out)
+// `path` as UTF-8 (#35); at most u8read's cap (512 MB: the Mac universal binary is the largest, ~40 MB)
+static bool read_file(const std::string &path, std::vector<uint8_t> &out) { return u8read(path, out); }
+
+// the part of a PE section that the file holds (review B11): past its raw data the section is uninitialised, past
+// its virtual size the raw data is padding; a virtual size of 0 means the raw size
+static uint32_t pe_file_size(uint32_t virtual_size, uint32_t raw_size)
 {
-    std::ifstream f(u8path(path), std::ios::binary);
-    if (!f)
-        return false;
-    out.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-    return true;
+    return virtual_size ? std::min(virtual_size, raw_size) : raw_size;
 }
 
 template <class T> static bool rd(const std::vector<uint8_t> &d, size_t off, T &v)
@@ -69,7 +64,7 @@ bool AccessFiles::load_pe(const std::string &dll, std::string &error, const char
     }
     auto r2o = [&](uint32_t rva) -> size_t {
         for (auto &s : secs)
-            if (rva >= s.va && rva < s.va + std::max(s.vs, s.rs))
+            if (rva >= s.va && rva - s.va < pe_file_size(s.vs, s.rs))
                 return rva - s.va + s.ra;
         return 0;
     };
@@ -92,11 +87,17 @@ bool AccessFiles::load_pe(const std::string &dll, std::string &error, const char
         }
         return s;
     };
+    // a damaged tree must not make the walk run away (review B10): no more entries than the file can hold, and at
+    // most 2^20 in all (the real DLL has a few hundred; entries can point back at their own directory)
+    size_t budget = size_t{1} << 20;
     auto entries = [&](size_t dir) {
         std::vector<std::pair<uint32_t, uint32_t>> v;
         uint16_t named = 0, ids = 0;
         rd(d, dir + 12, named), rd(d, dir + 14, ids);
-        for (int i = 0; i < named + ids; i++) {
+        const size_t fit = dir + 16 <= d.size() ? (d.size() - dir - 16) / 8 : 0;
+        const size_t n = std::min({(size_t)named + ids, fit, budget});
+        budget -= n;
+        for (size_t i = 0; i < n; i++) {
             uint32_t nm = 0, ent = 0;
             rd(d, dir + 16 + 8u * i, nm), rd(d, dir + 20 + 8u * i, ent);
             v.push_back({nm, ent});
@@ -138,7 +139,9 @@ bool AccessFiles::load_dir(const std::string &dir, std::string &error, const cha
         std::string ext = lower(u8str(f.extension()));
         if (ext != ".xml" && ext != ".png")
             continue;
-        read_file(u8str(f), files_[lower(u8str(f.filename()))]);
+        std::vector<uint8_t> data;
+        if (read_file(u8str(f), data)) // an unreadable file is not listed (review B12)
+            files_[lower(u8str(f.filename()))] = std::move(data);
     }
     if (!files_.count(required)) {
         error = dir + " does not contain the Virus TI resources";
@@ -249,7 +252,7 @@ bool pe_map(const std::vector<uint8_t> &b, AddressMap &m)
         return false;
     uint64_t base = le64(b, opt + 24);
     for (size_t i = 0, sec = opt + optsz; i < nsec && sec + 40 <= b.size(); i++, sec += 40)
-        m.push_back({base + le32(b, sec + 12), le32(b, sec + 16), le32(b, sec + 20)});
+        m.push_back({base + le32(b, sec + 12), pe_file_size(le32(b, sec + 8), le32(b, sec + 16)), le32(b, sec + 20)});
     return true;
 }
 
@@ -346,9 +349,9 @@ std::vector<KnobTemplate> find_knob_templates(const std::vector<uint8_t> &bin)
     return {};
 }
 
-std::vector<KnobTemplate> AccessFiles::knob_templates() const { return find_knob_templates(binary()); }
+std::vector<KnobTemplate> AccessFiles::knob_templates() const { return embedded().knobs; }
 
-std::vector<float> AccessFiles::osc_waves() const { return find_osc_waves(binary()); }
+std::vector<float> AccessFiles::osc_waves() const { return embedded().waves; }
 
 std::vector<uint8_t> AccessFiles::init_single() const { return embedded().init_single; }
 
@@ -358,10 +361,12 @@ const std::vector<uint8_t> &AccessFiles::default_page_b() const { return embedde
 
 const AccessFiles::Embedded &AccessFiles::embedded() const
 {
-    // the search reads the whole plug-in binary (~15 MB): once per AccessFiles for all three, not before every RAM
-    // write (audit #18) or once per item (review M8)
+    // the search reads the whole plug-in binary (~15 MB, ~30 ms): once per AccessFiles for all of them, not before
+    // every RAM write (audit #18), once per item (review M8) or per search (review B13; waves + knobs take ~7 ms)
     std::call_once(embedded_once_, [this] {
         const std::vector<uint8_t> bin = binary();
+        embedded_.knobs = find_knob_templates(bin);
+        embedded_.waves = find_osc_waves(bin);
         const size_t multi = find_dump(bin, 0x11, 267, 13, "MultiCtrl!"), off = find_dump(bin, 0x10, 524, 249, " -Init-");
         if (multi != std::string::npos)
             embedded_.init_multi.assign(bin.begin() + multi, bin.begin() + multi + 267);

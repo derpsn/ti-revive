@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cstdio>
 #include <memory>
+#include <thread>
 #include <filesystem>
 #ifdef _WIN32
 #include <process.h>
@@ -116,8 +117,14 @@ bool save_bank_file(const std::string &path, const Bank &bank)
     ok = fclose(f) == 0 && ok;
     // std::filesystem::rename replaces an existing file on Windows too (C rename() fails there)
     std::error_code ec;
-    if (ok)
+    // Windows refuses the replace for a moment while another writer replaces or reads the same file (1 of 200 saves
+    // in memsync_bank_file_temp_name_is_unique_per_writer, release CI 0.8.44): try again for up to ~100 ms
+    for (int i = 0; ok && i < 20; i++) {
         std::filesystem::rename(u8path(tmp), u8path(path), ec);
+        if (!ec)
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
     std::error_code rm;
     if (!ok || ec) // a unique name is not overwritten by the next save: remove it
         std::filesystem::remove(u8path(tmp), rm);
@@ -165,7 +172,7 @@ void MemorySync::feed(const std::vector<uint8_t> &m)
                             std::equal(match_.begin(), match_.end(), m.begin() + 6);
         if (single && !answer && !late_held_)
             late_[{m[7], m[8]}] = m;
-        if (!waiting_) // the plug-in sees every Access SysEx of a session: keep only what a request waits for
+        if (!answer) // the plug-in sees every Access SysEx of a session: keep only what a request waits for (review A20)
             return;
         inbox_.push_back(m);
         cv_.notify_all();
@@ -305,6 +312,11 @@ void MemorySync::cancel()
 
 // an empty reply after cancel() is the plug-in closing, not a Virus that did not answer (E314: "bank sync failed"
 // when Live closed the plug-in during the sync)
+bool MemorySync::should_stop(const std::atomic<bool> *stop)
+{
+    return (stop && *stop) || (before_request && !before_request()) || was_cancelled();
+}
+
 bool MemorySync::was_cancelled()
 {
     if (present && !present()) // no Virus for this instance (handed over, E591 (2)): a stop, not a miss
@@ -461,7 +473,7 @@ int MemorySync::read_bank(int bank, Bank &cache, const std::function<void(int)> 
 {
     const std::vector<uint8_t> rise = rise_message(dev_, 4);
     for (int p = 0; p < 128; p++) {
-        if ((stop && *stop) || (before_request && !before_request()) || was_cancelled())
+        if (should_stop(stop))
             return -2;
         send_(rise);
         Dump d = single(bank, p);
@@ -483,7 +495,7 @@ int MemorySync::read_missing(int bank, Bank &cache, const std::function<void(int
     for (int p = 0; p < 128; p++) {
         if (!cache[p].empty())
             continue;
-        if ((stop && *stop) || (before_request && !before_request()) || was_cancelled())
+        if (should_stop(stop))
             return -2;
         send_(rise);
         Dump d = single(bank, p);

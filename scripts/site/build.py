@@ -6,7 +6,7 @@
 #
 #   python3 scripts/site/build.py [--releases FILE] [--checksums] [--out DIR]
 #
-# --releases: a saved `gh api repos/derpsn/ti-revive/releases?per_page=100` (else gh is called)
+# --releases: a saved `gh api --paginate --slurp repos/derpsn/ti-revive/releases?per_page=100` (else gh is called)
 # --checksums: download the newest release's files once (cached in --cache) and show their SHA-256
 import argparse
 import hashlib
@@ -80,10 +80,13 @@ def md(text):
 def load_releases(path):
     if path:
         with open(path) as f:
-            return json.load(f)
-    out = subprocess.run(["gh", "api", "repos/%s/releases?per_page=100" % REPO], check=True, capture_output=True,
-                         text=True).stdout
-    return json.loads(out)
+            data = json.load(f)
+    else:
+        # --slurp: all pages as one JSON array of pages (a page holds at most 100 releases)
+        data = json.loads(subprocess.run(["gh", "api", "--paginate", "--slurp", "repos/%s/releases?per_page=100" % REPO],
+                                         check=True, capture_output=True, text=True).stdout)
+    # a saved file is either one page (older) or the pages of --slurp
+    return [r for page in data for r in page] if data and isinstance(data[0], list) else data
 
 
 def published(releases):
@@ -428,7 +431,7 @@ def page_landing(latest, releases, sums):
     </ul>
     <div class="testing">
       <div><h3>Automated tests</h3><p>{TESTS} unit tests run with every release build on Windows and Linux. They
-      covered {COVERAGE} of the lines of the core library when last measured, on {COVERAGE_DATE}, with fewer tests than today: the USB protocol, the device access, the editor and the reader
+      covered {COVERAGE} of the lines of the core library when last measured, on {COVERAGE_DATE}: the USB protocol, the device access, the editor and the reader
       for the Access files.</p></div>
       <div><h3>On the synth</h3><p>Changes that touch the Virus are tried on our TI2 Desktop before a release; the
       release notes say on which systems and in which DAWs.</p></div>
@@ -503,9 +506,12 @@ def page_landing(latest, releases, sums):
       <p>Like the original, the editor shows this when the Virus reports several notes in a row that arrived too late
       for their time stamp while your DAW plays. Stop and Play clears it. If it comes back, use a USB port the Virus does
       not share with other devices; the original gives the same advice. On macOS, notes could come late after an export in 0.8.25 and 0.8.26; since 0.8.27 the plug-in fills the audio cycles Core Audio skips during an export. In 0.8.30 a few notes of an export at a small buffer size (128 samples) still came 3-6 ms late and the message appeared; fixed in 0.8.31 (an export at 48 kHz and 128 samples: 256 of 256 notes on the grid).</p></details>
-      <details><summary>The first notes after Play are late</summary>
-      <p>The plug-in sends notes slightly ahead to make up for the USB round trip, so start playback a little before
-      the first note. The original driver did the same.</p></details>
+      <details><summary>The first notes after Play are late or crackle</summary>
+      <p>Start playback a bar or two before the first note (pre-roll or count-in). The plug-in sends notes to the Virus
+      ahead of time to make up for the USB round trip; right at Play, notes in the first quarter second can come late or
+      be skipped. Some DAWs (Logic, REAPER) also process ahead at Play, so a start right on a note can crackle slightly
+      and put the first 2 or 3 notes a little late. This was the same with Access' own plug-in and driver; Access'
+      manual also advises two bars before the first notes, and a pre-roll of two bars when bouncing.</p></details>
     </div>
     <div class="support" id="support">
       <h3>Report a problem</h3>
@@ -880,7 +886,7 @@ def page_changelog_landing(releases):
 SHARED_IMAGES = ["control-center.png", "control-center-nerd-mode.png", "plugin-help-mode.png", "plugin-help-inactive.png",
                  "plugin-menus.png", "plugin-library-drop.png",
                  "plugin-section-lock.png", "plugin-edit-menu.png", "plugin-help-menu.png"]
-TESTS = 1081 # unit tests in native/tests (vtitests), as of 2026-11-26 (0.8.44)
+TESTS = 1127 # unit tests in native/tests (vtitests), as of 2026-11-28 (0.8.45)
 
 # The "Thank you" list, in the Contributing block; the README's "Thank you" section is the same list (unit test).
 # (GitHub name, what they did); "#N" becomes a link to issue/PR N. Code and findings first, then testing and reports.
@@ -955,7 +961,7 @@ def notice_section():
   </div></div>
 </section>"""
 # line coverage of vticore, measured like CI (no Access files, empty home): gcov over the test run
-COVERAGE, COVERAGE_DATE = "95.5 %", "19 Nov 2026"
+COVERAGE, COVERAGE_DATE = "97.1 %", "28 Nov 2026"
 
 # the site: one page plus the changelog archive (file name, title and description for search results and link
 # previews, content)

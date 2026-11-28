@@ -1,12 +1,18 @@
 // utf8.cpp - see utf8.h. Windows converts by hand (MultiByteToWideChar/WideCharToMultiByte with CP_UTF8 and no
 // error flags): the standard library's u8string() throws on a name that is not valid UTF-16, which NTFS allows.
 #include "model/utf8.h"
+#include <atomic>
 #include <cstdlib>
 #ifdef _WIN32
+#include <process.h>
+#define vti_getpid _getpid
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
+#else
+#include <unistd.h>
+#define vti_getpid getpid
 #endif
 
 namespace vti {
@@ -54,6 +60,64 @@ std::string u8env(const char *name)
     return v ? std::string(v) : std::string();
 }
 #endif
+
+bool u8read(const std::string &utf8, std::vector<uint8_t> &out, size_t cap)
+{
+    out.clear();
+    FILE *f = u8fopen(utf8, "rb");
+    if (!f)
+        return false;
+    uint8_t buf[65536];
+    bool ok = true;
+    for (size_t n; ok && (n = fread(buf, 1, sizeof buf, f)) > 0;) {
+        ok = out.size() + n <= cap;
+        if (ok)
+            out.insert(out.end(), buf, buf + n);
+    }
+    ok = ok && !ferror(f);
+    fclose(f);
+    if (!ok)
+        out.clear();
+    return ok;
+}
+
+std::string u8temp_name(const std::string &path)
+{
+    static std::atomic<unsigned> n{0};
+    return path + "." + std::to_string((long)vti_getpid()) + "-" + std::to_string(n++) + ".tmp";
+}
+
+bool u8write_atomic(const std::string &path, const std::vector<uint8_t> &data, std::string *error)
+{
+    const std::string tmp = u8temp_name(path);
+    FILE *f = u8fopen(tmp, "wb");
+    if (!f) {
+        if (error)
+            *error = "cannot write " + path;
+        return false;
+    }
+    bool ok = fwrite(data.data(), 1, data.size(), f) == data.size();
+    ok = fclose(f) == 0 && ok; // a full disk may fail only here
+    std::error_code ec;
+    if (ok)
+        std::filesystem::rename(u8path(tmp), u8path(path), ec);
+    if (!ok || ec) {
+        if (error)
+            *error = !ok ? "cannot write " + path : ec.message();
+        std::error_code rm;
+        std::filesystem::remove(u8path(tmp), rm);
+        return false;
+    }
+    return true;
+}
+
+std::string ascii_lower(std::string s)
+{
+    for (auto &c : s)
+        if (c >= 'A' && c <= 'Z')
+            c = (char)(c - 'A' + 'a');
+    return s;
+}
 
 namespace {
 // U+00C0..U+017F (Latin-1 Supplement letters and Latin Extended-A) without their accents; '?' for the two signs

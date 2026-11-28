@@ -67,7 +67,7 @@ int upgrade_state_dumps(std::vector<std::vector<uint8_t>> &recs)
 {
     int n = 0;
     for (auto &r : recs)
-        if (r.size() == 524 && r[0] == 0xF0 && r[6] == 0x10 && r[7] == 0x00 && (int8_t)r[9] < 12 &&
+        if (r.size() == 524 && r[0] == 0xF0 && r[6] == 0x10 && r[7] == 0x00 && r[9] < 12 &&
             RemoteDevice::upgrade_single(r))
             n++;
     return n;
@@ -197,12 +197,19 @@ bool parse_editor_record(const std::vector<uint8_t> &m, std::string &path, int &
     return true;
 }
 
+// a mapped value as an int: the factors come from the XML, so clamp first (lround beyond long, or the cast, overflows)
+static int bounded(double x)
+{
+    const double lim = (double)RemoteDevice::NUM_LIMIT;
+    return std::isnan(x) ? 0 : (int)std::lround(std::clamp(x, -lim, lim));
+}
+
 int meta_to_client(const MetaClient &c, int mv)
 {
     for (auto &m : c.maps)
         if (m.second == mv)
             return m.first;
-    return (int)std::lround(c.a * mv + c.b);
+    return bounded(c.a * mv + c.b);
 }
 
 bool client_to_meta(const MetaClient &c, int cv, int &mv)
@@ -210,9 +217,9 @@ bool client_to_meta(const MetaClient &c, int cv, int &mv)
     for (auto &m : c.maps)
         if (m.first == cv)
             return mv = m.second, true;
-    if (!c.maps.empty() || c.a == 0)
+    if (!c.maps.empty() || c.a == 0 || !std::isfinite(c.a) || !std::isfinite(c.b))
         return false;
-    mv = (int)std::lround((cv - c.b) / c.a);
+    mv = bounded((cv - c.b) / c.a);
     return true;
 }
 

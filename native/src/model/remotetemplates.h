@@ -66,6 +66,7 @@ public:
     bool save_file(const std::string &path) const;    // whole: a temporary file renamed over the old one
 
 private:
+    std::vector<uint8_t> container(int first, int last) const;
     std::array<std::vector<uint8_t>, kTemplates> names_;
     std::array<std::array<std::vector<uint8_t>, kKnobs>, kTemplates> knobs_;
 };

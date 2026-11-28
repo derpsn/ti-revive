@@ -70,3 +70,17 @@ static inline void vti_trafring_each(const vti_trafring *r, vti_trafring_cb cb, 
         at += 2u + size;
     }
 }
+
+// one record of a USB event for the brokers: hdr = kind, endpoint, u32 ms; body = a (cut to cap), then b if it fits.
+// Returns the body length (review A11: both brokers had their own copy).
+static inline int vti_trafrec(uint8_t hdr[6], uint8_t *body, int cap, uint8_t kind, uint8_t ep, uint32_t ms, const void *a,
+                              int alen, const void *b, int blen)
+{
+    hdr[0] = kind, hdr[1] = ep;
+    memcpy(hdr + 2, &ms, 4);
+    int n = alen < cap ? alen : cap;
+    memcpy(body, a, (size_t)n);
+    if (blen > 0 && n + blen <= cap)
+        memcpy(body + n, b, (size_t)blen), n += blen;
+    return n;
+}

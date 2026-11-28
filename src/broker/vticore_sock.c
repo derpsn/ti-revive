@@ -1,7 +1,7 @@
 // vticore_sock.c - client backend of vticore.h for the Windows wrapper running under Wine on Linux
 // (findings/design-linux.md, L2): talks to the NATIVE Linux vtibroker over its Unix domain socket
-// (/tmp/vtibroker-<uid>.sock, if this Wine's Winsock has AF_UNIX) or its token-protected TCP listener on 127.0.0.1
-// (Wine 10 as packaged by Ubuntu has no AF_UNIX, E117), with the same messages as vticore_pipe.c.
+// ($XDG_RUNTIME_DIR or /tmp/vtibroker-<uid>.sock, if this Wine's Winsock has AF_UNIX) or its token-protected TCP listener on 127.0.0.1
+// (Wine 10 as packaged by Ubuntu has no AF_UNIX, E117), with the same messages as the broker's pipe on Windows.
 // Broker audio (protocol 3): the broker's POSIX shared memory /dev/shm/tirevive-audio-<uid> is exposed to vtiaudio.c under the usual name VTI_AUDIO_SHM_NAME (a Windows file
 // mapping of that file is a MAP_SHARED mapping in Wine), and every VTIMSG_AUDIO_TICK sets the client's event, so
 // vtiaudio.c follows the ring exactly as on Windows.
@@ -220,15 +220,21 @@ static SOCKET connect_broker(void)
     }
     // Wine converts the Windows path to the Unix one (Z: = /); try that and the plain Unix path
     unsigned uid = unix_uid();
-    static const char *fmt[2] = {"Z:\\tmp\\vtibroker-%u.sock", "/tmp/vtibroker-%u.sock"};
-    for (int i = 0; i < 2 && !no_unix; i++) {
+    // the Linux broker's socket is in the runtime folder since 0.8.45 (devslot.h vti_sock_path), /tmp without one
+    char run[200] = "";
+    GetEnvironmentVariableA("XDG_RUNTIME_DIR", run, sizeof run);
+    char paths[3][108];
+    snprintf(paths[0], sizeof paths[0], "%s/vtibroker-%u.sock", run[0] == '/' ? run : "/tmp", uid);
+    snprintf(paths[1], sizeof paths[1], "Z:\\tmp\\vtibroker-%u.sock", uid);
+    snprintf(paths[2], sizeof paths[2], "/tmp/vtibroker-%u.sock", uid);
+    for (int i = 0; i < 3 && !no_unix; i++) {
         SOCKET s = socket(AF_UNIX, SOCK_STREAM, 0);
         if (s == INVALID_SOCKET) {
             no_unix = 1; // this Wine has no AF_UNIX: TCP from now on
             break;
         }
         SOCKADDR_UN sa = {.sun_family = AF_UNIX};
-        snprintf(sa.sun_path, sizeof sa.sun_path, fmt[i], uid);
+        snprintf(sa.sun_path, sizeof sa.sun_path, "%.107s", paths[i]);
         if (!connect(s, (struct sockaddr *)&sa, sizeof sa))
             return s;
         vti_log("vti: connect %s: error %d\n", sa.sun_path, WSAGetLastError());
@@ -291,8 +297,12 @@ void vti_close(vti *v)
     shutdown(v->s, SD_BOTH);
     closesocket(v->s);
     if (v->rd) {
-        WaitForSingleObject(v->rd, 2000);
+        const int stuck = WaitForSingleObject(v->rd, 2000) != WAIT_OBJECT_0;
         CloseHandle(v->rd);
+        if (stuck) { // the reader still runs on v: leak it rather than free under it (review A5)
+            vti_log("vti: the reader did not stop within 2 s, its memory is left allocated\n");
+            return;
+        }
     }
     audio_release(v);
     CloseHandle(v->ctl_done);

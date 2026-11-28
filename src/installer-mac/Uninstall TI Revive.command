@@ -16,6 +16,8 @@ if [ -f "$USBAUDIO" ]; then
 fi
 sudo pkill -x vtibroker 2>/dev/null
 sudo pkill -x vtihelper 2>/dev/null
+# the old bundle names are also listed in src/installer-linux/install.sh, src/installer-linux/uninstall.sh,
+# src/installer-mac/scripts/postinstall, native/packaging/windows/native.wxs: change them together
 sudo rm -rf "/Library/Audio/Plug-Ins/VST3/TI Revive.vst3" "/Library/Audio/Plug-Ins/Components/TI Revive.component" \
     "/Library/Audio/Plug-Ins/Components/TI Revive (Snow).component" \
     "/Library/Audio/Plug-Ins/VST3/TI Revive Virus Control.vst3" "/Library/Audio/Plug-Ins/Components/TI Revive Virus Control.component" \

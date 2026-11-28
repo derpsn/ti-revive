@@ -7,13 +7,14 @@
 // function on libusb (vtiusbaudio_libusb.c) into POSIX shared memory (vtiaudioshm.h), with VTIMSG_AUDIO_TICK to
 // the audio client per block, see findings/design-linux.md.
 //
-// usage: vtibroker [-v] [-stay] [-slot N]   socket: /tmp/vtibroker-<uid>.sock (VTI_SOCK_FMT); Virus N > 1 (several
-// connected, devslot.h, #45): /tmp/vtibroker-<uid>-N.sock, its own audio memory
+// usage: vtibroker [-v] [-stay] [-slot N]   socket: $XDG_RUNTIME_DIR/vtibroker-<uid>.sock (macOS, or no runtime dir:
+// /tmp, vti_sock_path); Virus N > 1 (several connected, devslot.h, #45): vtibroker-<uid>-N.sock, its own audio memory
 #include "vticore.h"
 #include "vtiproto.h"
 #include "brokerinfo.h"
 #include "flashinfo.h"
 #include "ctrlguard.h"
+#include "outfill.h"
 #include "sxhold.h"
 #include "owner.h"
 #include "trafficring.h"
@@ -37,7 +38,6 @@
 #include <time.h>
 #include <unistd.h>
 #ifdef __APPLE__
-#include "vtimidi_mac.h"
 #include <launch.h>
 #endif
 // The Virus keys and its DIN MIDI In as MIDI sources for the DAW (vtikeyport.h): CoreMIDI on macOS, the ALSA
@@ -56,7 +56,6 @@
 static unsigned g_owner_uid; // the user served: getuid(), or SUDO_UID for the sudo broker (owneruid.h)
 static int g_usb_audio = 1;  // macOS: only with VTI_LIBUSB_AUDIO=1 (main)
 
-#define VTI_SOCK_FMT "/tmp/vtibroker-%u%s.sock" // uid, slot suffix (devslot.h)
 #ifdef MSG_NOSIGNAL
 #define MSG_NOSIGNAL_OR_ZERO MSG_NOSIGNAL
 #else
@@ -158,6 +157,8 @@ static int read_all(int fd, void *p, size_t n)
 
 static int send_msg(client *c, uint16_t type, const void *a, int alen, const void *b, int blen)
 {
+    if (alen < 0 || blen < 0 || alen + blen > VTIMSG_MAX) // the header's length is 16 bits (review A10)
+        return -1;
     vtimsg h = {type, (uint16_t)(alen + blen)};
     pthread_mutex_lock(&c->wr);
     int r = write_all(c->fd, &h, sizeof h) || (alen && write_all(c->fd, a, (size_t)alen)) ||
@@ -183,9 +184,7 @@ static int waits(const client *c) // g_cs_clients held
 // the Virus' identification blocks (VTIMSG_FLASHINFO, flashinfo.h): read once per device open with the original
 // driver's fixed read-only sequence, then cached; the device lock is held per request only (MIDI keeps flowing)
 static unsigned g_dev_gen; // counts device opens: the cache belongs to one
-static uint8_t g_flash[VTI_FLASH_BLOCKS * 16];
-static int g_flash_len, g_flash_busy;
-static unsigned g_flash_gen;
+static vti_flashcache g_flash; // g_cs_dev
 
 static int flash_ctl(void *u, uint8_t rt, uint8_t req, uint16_t val, uint16_t idx, uint8_t *d, uint16_t len)
 {
@@ -200,26 +199,17 @@ static void flash_nap(int ms) { usleep((useconds_t)ms * 1000); }
 
 static int flash_info(uint8_t *out)
 {
+    int n;
     pthread_mutex_lock(&g_cs_dev);
     unsigned gen = g_dev_gen;
-    int cached = g_dev && g_flash_len > 0 && g_flash_gen == gen, start = g_dev && !cached && !g_flash_busy;
-    if (cached)
-        memcpy(out, g_flash, (size_t)g_flash_len);
-    if (start)
-        g_flash_busy = 1;
-    int n = cached ? g_flash_len : -1;
+    const int start = vti_flash_begin(&g_flash, g_dev != NULL, gen, out, &n);
     pthread_mutex_unlock(&g_cs_dev);
     if (!start)
         return n;
     n = vti_flash_info(flash_ctl, flash_nap, &gen, out);
     blog("flash info read (read-only, E026): %d bytes", n);
     pthread_mutex_lock(&g_cs_dev);
-    g_flash_busy = 0;
-    if (n > 0 && g_dev_gen == gen) {
-        memcpy(g_flash, out, (size_t)n);
-        g_flash_len = n;
-        g_flash_gen = gen;
-    }
+    vti_flash_end(&g_flash, g_dev_gen, gen, out, n);
     pthread_mutex_unlock(&g_cs_dev);
     return n;
 }
@@ -335,14 +325,8 @@ static void obs_push(uint16_t type, const void *a, int alen, const void *b, int 
 static void obs_traffic(uint8_t kind, uint8_t ep, const void *a, int alen, const void *b, int blen)
 {
     __atomic_add_fetch(kind == 0 ? &g_cnt_out : kind == 1 ? &g_cnt_in : &g_cnt_ctl, 1, __ATOMIC_RELAXED);
-    uint8_t hdr[6] = {kind, ep};
-    uint32_t t = uptime_ms();
-    memcpy(hdr + 2, &t, 4);
-    uint8_t body[VTIMSG_MAX];
-    int n = alen < (int)sizeof body ? alen : (int)sizeof body;
-    memcpy(body, a, (size_t)n);
-    if (blen > 0 && n + blen <= (int)sizeof body)
-        memcpy(body + n, b, (size_t)blen), n += blen;
+    uint8_t hdr[6], body[VTIMSG_MAX];
+    const int n = vti_trafrec(hdr, body, (int)sizeof body, kind, ep, uptime_ms(), a, alen, b, blen);
     pthread_mutex_lock(&g_cs_pre);
     vti_trafring_push(&g_pre, hdr, body, n, NULL, 0);
     if (__atomic_load_n(&g_obs_count, __ATOMIC_RELAXED))
@@ -359,6 +343,10 @@ static void *obs_writer(void *arg) // sends the queued bytes; any byte range of 
 {
     obsq *q = arg;
     uint8_t *out = malloc(64 * 1024);
+    if (!out) { // the observer gets nothing; obs_detach still stops and joins this thread
+        blog("out of memory: observer gets no traffic");
+        return NULL;
+    }
     for (;;) {
         pthread_mutex_lock(&q->mu);
         while (!q->len && !q->stop)
@@ -448,9 +436,16 @@ static void obs_attach(client *c, int replay)
     q->c = c;
     pthread_mutex_init(&q->mu, NULL);
     pthread_cond_init(&q->cv, NULL);
-    c->q = q;
     vti_send_timeout(c->fd, 0); // its writer thread holds no broker lock while it sends: a slow capture may wait
-    pthread_create(&q->th, NULL, obs_writer, q);
+    if (pthread_create(&q->th, NULL, obs_writer, q)) { // no queue then: obs_detach would join a thread that never ran
+        pthread_mutex_destroy(&q->mu);
+        pthread_cond_destroy(&q->cv);
+        free(q->ring);
+        free(q);
+        blog("no writer thread: observer gets no traffic");
+        return;
+    }
+    c->q = q;
     pthread_mutex_lock(&g_cs_pre); // nothing new between the replay and the attach, nothing twice
     if (replay) {
         if (g_pre.lost) {
@@ -552,10 +547,6 @@ static void on_rx(void *user, uint8_t ep, const uint8_t *data, int len)
         if (v >= 0)
             blog("usbaudio: the Virus reports System Clock/Frequency = %s", v ? "48 kHz" : "44.1 kHz");
     }
-#ifdef __APPLE__
-    if (ep == VTI_EP_MI04_IN)
-        vtimidi_rx(data, len);
-#endif
     vti_keyport_filter(ep, data, (int)len, keyport_out, NULL); // the Virus keys to the DAW (#29)
     vti_dinport_filter(ep, data, (int)len, dinport_out, NULL); // its DIN MIDI In to the DAW (E517)
     pthread_mutex_lock(&g_cs_clients); // the owner and every sharing client
@@ -635,14 +626,15 @@ static int shm_create(void)
     }
     if (m == MAP_FAILED)
         return -1;
-    g_shm = m;
-    memset(g_shm, 0, sizeof *g_shm);
-    g_shm->magic = VTI_AUDIO_MAGIC;
-    g_shm->version = VTI_AUDIO_VERSION;
-    g_shm->rate = VLA_RATE;
-    g_shm->in_ch = VTI_AUDIO_IN_CH;
-    g_shm->out_ch = VTI_AUDIO_OUT_CH;
-    g_shm->ring_frames = VTI_AUDIO_RING;
+    vti_audio_shm *sh = m; // filled before g_shm publishes it: other threads test g_shm without a lock (review A9)
+    memset(sh, 0, sizeof *sh);
+    sh->magic = VTI_AUDIO_MAGIC;
+    sh->version = VTI_AUDIO_VERSION;
+    sh->rate = VLA_RATE;
+    sh->in_ch = VTI_AUDIO_IN_CH;
+    sh->out_ch = VTI_AUDIO_OUT_CH;
+    sh->ring_frames = VTI_AUDIO_RING;
+    __atomic_store_n(&g_shm, sh, __ATOMIC_RELEASE);
     return 0;
 }
 
@@ -681,43 +673,19 @@ static void audio_in(const int16_t *pcm, uint32_t frames, void *user) // libusb 
     pthread_mutex_unlock(&g_cs_tick);
 }
 
-// OUT packet source: as vtibroker.c - playback starts with OUT_PREFILL frames buffered, latency bounded by OUT_MAX
-#define OUT_PREFILL 512
-#define OUT_MAX 2048
-static int g_out_playing;
-static uint64_t g_out_underruns, g_out_dropped, g_out_frames;
+// OUT packet source: the client's frames from the output ring (outfill.h)
+static vti_outfill g_out;
 
 static void audio_out(int16_t *dst, uint32_t frames, void *user)
 {
     (void)user;
     int64_t w = __atomic_load_n(&g_shm->out_write, __ATOMIC_ACQUIRE), r = g_shm->out_read;
-    int64_t avail = w - r;
-    if (avail < 0 || avail > VTI_AUDIO_RING) { // writer restarted or far ahead: resynchronise
-        r = w;
-        avail = 0;
-        g_out_playing = 0;
-    }
-    if (!g_out_playing && avail >= OUT_PREFILL)
-        g_out_playing = 1;
-    if (g_out_playing && avail > OUT_MAX) {
-        g_out_dropped += (uint64_t)(avail - OUT_PREFILL);
-        r = w - OUT_PREFILL;
-        avail = OUT_PREFILL;
-    }
-    uint32_t n = 0;
-    if (g_out_playing) {
-        n = avail < frames ? (uint32_t)avail : frames;
-        for (uint32_t i = 0; i < n; i++)
-            memcpy(dst + i * VTI_AUDIO_OUT_CH, &g_shm->out[((r + i) & (VTI_AUDIO_RING - 1)) * VTI_AUDIO_OUT_CH],
-                   VTI_AUDIO_OUT_CH * sizeof(int16_t));
-        if (n < frames) { // ran dry: refill before playing again
-            g_out_underruns++;
-            g_out_playing = 0;
-        }
-    }
+    const uint32_t n = vti_outfill_take(&g_out, w, &r, frames);
+    for (uint32_t i = 0; i < n; i++)
+        memcpy(dst + i * VTI_AUDIO_OUT_CH, &g_shm->out[((r + i) & (VTI_AUDIO_RING - 1)) * VTI_AUDIO_OUT_CH],
+               VTI_AUDIO_OUT_CH * sizeof(int16_t));
     memset(dst + n * VTI_AUDIO_OUT_CH, 0, (frames - n) * VTI_AUDIO_OUT_CH * sizeof(int16_t));
     g_shm->out_read = r + n;
-    g_out_frames += n;
 }
 
 // Block notifications go out from here, not from the USB thread, so a slow client never delays the stream.
@@ -863,8 +831,8 @@ static int audio_start(uint32_t wanted, int owner)
     g_tick_sent = 0;
     g_f5_base = -1;
     g_shm->out_read = g_shm->out_write;
-    g_out_playing = 0;
-    g_out_frames = g_out_underruns = g_out_dropped = 0;
+    g_out.playing = 0;
+    g_out.frames = g_out.underruns = g_out.dropped = 0;
     // a fresh start protects no running stream: any explicit wish applies (still debounced); 0 keeps the last rate
     uint32_t last = g_shm->rate ? g_shm->rate : VLA_RATE;
     uint32_t rate = vti_rate_choose(last, wanted, 1, vti_rate_may_switch(&g_rate_guard, uptime_ms()));
@@ -889,9 +857,9 @@ static void audio_stop(void) // g_cs_dev held
     // the gap diagnostics start again with the next stream: else its first block counted the pause since this one
     // ("usb block late: 3843 ms" after every DAW restart in #37's log, no real delay)
     g_in_last = g_tick_last = 0;
-    if (g_out_frames)
-        blog("audio out: %llu frames played, %llu underruns, %llu frames dropped", (unsigned long long)g_out_frames,
-             (unsigned long long)g_out_underruns, (unsigned long long)g_out_dropped);
+    if (g_out.frames)
+        blog("audio out: %llu frames played, %llu underruns, %llu frames dropped", (unsigned long long)g_out.frames,
+             (unsigned long long)g_out.underruns, (unsigned long long)g_out.dropped);
 }
 
 // a write waiting on a busy Virus goes on while the broker runs and (client != NULL) its client is still connected:
@@ -917,7 +885,7 @@ static int keep_tx(void *client_fd)
 static vti_sxhold g_sxhold; // g_cs_tx: whose SysEx is open on the wire (sxhold.h)
 
 // g_cs_tx for client c's write, once no other client's SysEx is open on the wire (bounded, sxhold.h)
-static void tx_lock(const client *c)
+static void tx_lock(const void *c)
 {
     const uint32_t start = uptime_ms();
     pthread_mutex_lock(&g_cs_tx);
@@ -931,17 +899,6 @@ static void tx_lock(const client *c)
     if (g_sxhold.who && g_sxhold.who != c && uptime_ms() - g_sxhold.last < VTI_SX_HOLD_MS)
         blog("a write waited %d s for another client's SysEx to end: sent anyway", VTI_SX_HOLD_MS / 1000);
 }
-
-#ifdef __APPLE__
-// shortcut: not held by an open SysEx (sxhold.h); the 0.7.x opt-in path only, no Control Center next to it
-static int midi_write(const uint8_t *data, int len) // pump thread: plug-in channel packets from the MDW ring
-{
-    pthread_mutex_lock(&g_cs_tx);
-    int r = g_dev ? vti_write_keep(g_dev, VTI_EP_MI04_OUT, data, len, keep_tx, NULL) : -1;
-    pthread_mutex_unlock(&g_cs_tx);
-    return r;
-}
-#endif
 
 static int client_count(void)
 {
@@ -1227,7 +1184,7 @@ static void *client_thread(void *arg)
                 break;
             }
             if (h.len >= 1 && vti_write_blocked(&c->sx, buf + 1, h.len - 1)) {
-                blog("refused a write of %d bytes (rule 2: Multi parameter 0-3 of page 0x72 or status F4)", h.len - 1);
+                blog("refused a write of %d bytes (rule 2: not whole packets, Multi parameter 0-3 of page 0x72 or status F4)", h.len - 1);
                 break;
             }
             if (h.len >= 1 && may_use(c)) {
@@ -1464,11 +1421,12 @@ int main(int argc, char **argv)
 #endif
     char sfx[4];
     vti_slot_suffix(sfx, vti_slot);
-    snprintf(sa.sun_path, sizeof sa.sun_path, VTI_SOCK_FMT, g_owner_uid, sfx);
+    // a broker run as root for the user (sudo) has no runtime dir of theirs: /tmp, which the plug-in tries second
+    vti_sock_path(sa.sun_path, sizeof sa.sun_path, g_owner_uid, sfx, geteuid() == 0 ? NULL : getenv("XDG_RUNTIME_DIR"));
     int s = -1;
 #ifdef __APPLE__
-    // Started by launchd socket activation (LaunchAgent with a "Listeners" socket, scripts/mac-install-broker.sh):
-    // launchd owns the socket and starts us on the first connect; after the idle exit it starts us again.
+    // Started by launchd socket activation (the libusb package's LaunchDaemon with a "Listeners" socket, written by
+    // src/installer-mac/scripts/postinstall): launchd owns the socket and starts us on the first connect.
     int *fds = NULL;
     size_t nfds = 0;
     if (launch_activate_socket("Listeners", &fds, &nfds) == 0 && nfds > 0) {
@@ -1508,7 +1466,10 @@ int main(int argc, char **argv)
         close(s);
         unlink(sa.sun_path);
         s = socket(AF_UNIX, SOCK_STREAM, 0);
-        if (bind(s, (struct sockaddr *)&sa, sizeof sa) || chmod(sa.sun_path, 0600) ||
+        const mode_t um = umask(077); // the socket file is never reachable by others, not even until the chmod (review A6)
+        const int bound = bind(s, (struct sockaddr *)&sa, sizeof sa);
+        umask(um);
+        if (bound || chmod(sa.sun_path, 0600) ||
             (geteuid() == 0 && g_owner_uid != 0 && chown(sa.sun_path, (uid_t)g_owner_uid, (gid_t)-1)) || listen(s, 8)) {
             blog("socket %s: %s", sa.sun_path, strerror(errno));
             return 1;
@@ -1534,24 +1495,12 @@ int main(int argc, char **argv)
     // a test switch; the port is read-only and harmless when nothing listens. Virus 2+: once it is there (below)
     if (!getenv("VTI_NO_MIDI_PORT") && vti_slot == 1)
         vti_keyport_start();
-#ifdef __APPLE__
-    // stand-in for Access' MIDI driver towards the original Virus Control (E100): only the classic path of 0.7.x
-    // (bridge + Rosetta helper, src/mac) used it; the native plug-in talks to the broker directly. Opt-in.
-    if (getenv("VTI_BROKER_MIDISHIM") && atoi(getenv("VTI_BROKER_MIDISHIM")) == 1) {
-        if (vtimidi_start(midi_write))
-            blog("MIDI slot memory could not be created");
-        else
-            blog("MIDI driver stand-in for the original plug-in started (VTI_BROKER_MIDISHIM=1)");
-    }
-#endif
     pthread_t t;
-    pthread_create(&t, NULL, signal_thread, &sigs);
-    pthread_detach(t);
-    pthread_create(&t, NULL, device_thread, NULL);
-    pthread_detach(t);
-    if (g_usb_audio) {
-        pthread_create(&t, NULL, tick_thread, NULL);
-        pthread_detach(t);
+    if (pthread_create(&t, NULL, signal_thread, &sigs) || pthread_detach(t) ||
+        pthread_create(&t, NULL, device_thread, NULL) || pthread_detach(t) ||
+        (g_usb_audio && (pthread_create(&t, NULL, tick_thread, NULL) || pthread_detach(t)))) {
+        blog("could not start the broker's threads");
+        return 1;
     }
     struct pollfd pf[2] = {{.fd = s, .events = POLLIN}, {.fd = -1, .events = POLLIN}};
 #ifdef __linux__
@@ -1589,7 +1538,13 @@ int main(int argc, char **argv)
             }
 #endif
             pthread_mutex_init(&c->wr, NULL);
-            pthread_create(&t, NULL, client_thread, c);
+            if (pthread_create(&t, NULL, client_thread, c)) {
+                blog("no client thread: client refused");
+                pthread_mutex_destroy(&c->wr);
+                close(fd);
+                free(c);
+                continue;
+            }
             pthread_detach(t);
         }
     }

@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <atomic>
+#include <system_error>
 #include <thread>
 #include <vector>
 #ifdef _WIN32
@@ -210,35 +212,25 @@ const char *os_family()
 #endif
 }
 
-std::string update_state_path() { return u8str(u8path(plugin_dir()) / "update.txt"); }
+std::string update_state_path() { return plugin_file("update.txt"); }
 
 UpdateState read_update_state()
 {
     UpdateState s;
-    std::ifstream f(u8path(update_state_path()), std::ios::binary);
-    if (f) {
-        std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        if (text.size() < 4096)
-            parse_update_state(text, s);
-    }
+    std::vector<uint8_t> d;
+    if (u8read(update_state_path(), d, 4095))
+        parse_update_state(std::string(d.begin(), d.end()), s);
     return s;
 }
 
 bool write_update_state(const UpdateState &s)
 {
+    if (plugin_dir().empty())
+        return false;
     std::error_code ec;
     std::filesystem::create_directories(u8path(plugin_dir()), ec);
-    const std::filesystem::path f = u8path(update_state_path()), tmp = u8path(update_state_path() + ".tmp");
-    {
-        std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
-        if (!o)
-            return false;
-        o << format_update_state(s);
-        if (!o)
-            return false;
-    }
-    std::filesystem::rename(tmp, f, ec); // whole or not at all: the plug-in may read it at the same moment
-    return !ec;
+    const std::string text = format_update_state(s);
+    return u8write_atomic(update_state_path(), std::vector<uint8_t>(text.begin(), text.end())); // the plug-in may read it meanwhile
 }
 
 namespace {
@@ -362,17 +354,33 @@ bool run_update_check(UpdateState &s, std::string &error)
     return true;
 }
 
+bool store_update_result(const UpdateState &answer)
+{
+    UpdateState s = read_update_state();
+    s.checked = answer.checked, s.latest = answer.latest;
+    return write_update_state(s);
+}
+
 void start_update_check_if_due(bool now)
 {
+    // one check at a time: switching the option on during the start's check does not start a second one
+    static std::atomic<bool> running{false};
     if (!plugin_option("update-check") || (!now && !check_due((long long)time(nullptr), read_update_state())))
         return;
-    std::thread([] {
-        UpdateState s = read_update_state();
-        std::string err;
-        if (run_update_check(s, err))
-            write_update_state(s);
-        // no answer (offline, no curl): nothing written, so the next start of the Control Center tries again
-    }).detach();
+    if (running.exchange(true))
+        return;
+    try {
+        std::thread([] {
+            UpdateState s;
+            std::string err;
+            if (run_update_check(s, err))
+                store_update_result(s);
+            // no answer (offline, no curl): nothing written, so the next start of the Control Center tries again
+            running = false;
+        }).detach();
+    } catch (const std::system_error &) { // no thread: no check this time
+        running = false;
+    }
 }
 
 } // namespace vti::cc

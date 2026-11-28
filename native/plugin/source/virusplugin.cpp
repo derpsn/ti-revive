@@ -43,10 +43,8 @@ namespace vti {
 // The plug-in takes over the class id of the TI Revive plug-in it replaces (0.8.0), so projects saved with
 // "Virus TI (TI Revive)" open with it: Windows/Linux the wrapper's id (the original's with byte 15 ^ 0x5A, vtiwrap.c),
 // macOS the bridge's id (tirbridge_vst3.cpp). The other ids are declared compatible in moduleinfo.json
-// (plugin/CMakeLists.txt). VTI_NATIVE_DROPIN: the original Access id (tests with projects of the original).
-#if defined(VTI_NATIVE_DROPIN)
-const FUID kVirusTIClassId(0xD9909FB4, 0x5F730543, 0xAC5397BE, 0x8958CD31);
-#elif defined(__APPLE__)
+// (plugin/CMakeLists.txt).
+#if defined(__APPLE__)
 const FUID kVirusTIClassId(0x7A1E5C3B, 0x4D2F4E61, 0x9B0C8A17, 0x2F64D5E9);
 #else
 const FUID kVirusTIClassId(0xB49F90D9, 0x735F4305, 0xAC5397BE, 0x8958CD31 ^ 0x5A);
@@ -88,7 +86,7 @@ static int load_usb_io()
     int v = 0;
     if (const char *e = std::getenv("VTI_IO_CONFIG"))
         v = std::atoi(e);
-    else if (FILE *f = vti::u8fopen(vti::cc::plugin_dir() + "/usb-io", "r")) {
+    else if (FILE *f = vti::u8fopen(vti::cc::plugin_file("usb-io"), "r")) {
         if (std::fscanf(f, "%d", &v) != 1)
             v = 0;
         std::fclose(f);
@@ -1335,9 +1333,9 @@ void DeviceOut::run()
         bool ok = broker_.write(EP_PLUGIN_OUT, pk_.data(), pk_.size(), &end);
         if (stamp >= 0) // stamped traffic counts against the budget; queued SysEx does not (sendbudget.h, E266)
             budget_.take((int)pk_.size());
-        if (msg.size() > 7 && msg[0] == 0xF0 && msg[6] == 0x11) { // a multi dump (11 00 00 ...)
-            static const int pause = getenv("VTI_NATIVE_MULTI_PAUSE") ? atoi(getenv("VTI_NATIVE_MULTI_PAUSE")) : 250;
-            queue_hold_until_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(pause);
+        if (msg.size() > 7 && msg[0] == 0xF0 && msg[6] == 0x11) { // a multi dump (11 00 00 ...): the Virus drops the
+            // next message if it comes too soon (E145), so the queue waits 250 ms
+            queue_hold_until_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
         }
         if (klog_)
             klog_check();
@@ -1428,7 +1426,7 @@ tresult PLUGIN_API VirusPlugin::initialize(FUnknown *context)
         // without the user's Access installation there is nothing to show; the host still gets a valid instance
         fprintf(stderr, "Virus TI native: %s\n", err.c_str());
         if (diag_enabled()) // no device worker (and so no log) without the files: the reason, e.g. a 32-bit DLL (E345)
-            if (FILE *f = vti::u8fopen(own_cache_dir() + "/../diag.log", "a")) {
+            if (FILE *f = vti::u8fopen(vti::cc::plugin_file("diag.log"), "a")) {
                 fprintf(f, "%ld Virus TI native: no Access files: %s\n", (long)std::time(nullptr), err.c_str());
                 fclose(f);
             }
@@ -1515,10 +1513,10 @@ tresult PLUGIN_API VirusPlugin::initialize(FUnknown *context)
     // the timing (E363, E364): the original's lead of 3072 and the safety net; timing-classic.on = as before 0.8.35
     {
         std::error_code tec;
-        timing_classic_ = std::filesystem::exists(vti::u8path(own_cache_dir() + "/../timing-classic.on"), tec);
-        note_probe_on_ = diag_enabled() && std::filesystem::exists(vti::u8path(own_cache_dir() + "/../noteprobe.on"), tec);
+        timing_classic_ = std::filesystem::exists(vti::u8path(vti::cc::plugin_file("timing-classic.on")), tec);
+        note_probe_on_ = diag_enabled() && std::filesystem::exists(vti::u8path(vti::cc::plugin_file("noteprobe.on")), tec);
         // the output delays only on change, not at every Play/Stop (Control Center option, outputdelay.h resend_all)
-        od_changes_only_ = std::filesystem::exists(vti::u8path(own_cache_dir() + "/../outdelay-changes.on"), tec);
+        od_changes_only_ = std::filesystem::exists(vti::u8path(vti::cc::plugin_file("outdelay-changes.on")), tec);
         live_notes_ = vti::cc::plugin_option("live-notes"); // the plug-in folder itself: no cache folder needed (S065 C9)
         low_latency_ = vti::cc::plugin_option("low-latency") && !getenv("VTI_NATIVE_A"); // a measurement's A wins
 #ifdef _WIN32
@@ -1541,8 +1539,8 @@ tresult PLUGIN_API VirusPlugin::initialize(FUnknown *context)
         // (library scan, ready probe, marker) was lost (win10 VM, rc1, 2026-11-11)
         std::error_code ec;
         std::filesystem::create_directories(vti::u8path(own_cache_dir()), ec);
-        vti::cc::rotate_log(own_cache_dir() + "/../diag.log", vti::cc::kPluginLogLimit); // on for everyone: kept small
-        out_->set_diag_path(own_cache_dir() + "/../diag.log");
+        vti::cc::rotate_log(vti::cc::plugin_file("diag.log"), vti::cc::kPluginLogLimit); // on for everyone: kept small
+        out_->set_diag_path(vti::cc::plugin_file("diag.log"));
     }
     out_->log("Virus TI native: TI Revive %s (%s)\n", VTI_NATIVE_VERSION, VTI_GIT_REV); // which build (E563)
     if (live_notes_) { // after set_diag_path, or the line never reaches diag.log
@@ -1676,7 +1674,7 @@ void VirusPlugin::set_usb_io(int value, bool save)
         return;
     const int old = usb_io_.exchange(value);
     if (save && value != old)
-        if (FILE *f = vti::u8fopen(vti::cc::plugin_dir() + "/usb-io", "w")) {
+        if (FILE *f = vti::u8fopen(vti::cc::plugin_file("usb-io"), "w")) {
             std::fprintf(f, "%d\n", value);
             std::fclose(f);
         }
@@ -1701,6 +1699,19 @@ std::vector<std::vector<uint8_t>> VirusPlugin::startup_messages() const
 
 tresult PLUGIN_API VirusPlugin::terminate()
 {
+    gestures_.flush([this](uint32_t id) { endEdit(id); });
+    note_probe_flush();
+    shutdown();
+    return SingleComponentEffect::terminate();
+}
+
+// A host that destroys the plug-in without terminate() (or after a failed initialize()) would destroy joinable
+// threads (std::terminate) and a running worker (review B28)
+VirusPlugin::~VirusPlugin() { shutdown(); }
+
+// the threads and the worker stop; idempotent: terminate() and the destructor both call it
+void VirusPlugin::shutdown()
+{
     if (gesture_timer_) { // before anything it calls goes away
         gesture_timer_->stop();
         gesture_timer_ = nullptr;
@@ -1712,8 +1723,6 @@ tresult PLUGIN_API VirusPlugin::terminate()
         gesture_loop_ = nullptr;
     }
 #endif
-    gestures_.flush([this](uint32_t id) { endEdit(id); });
-    note_probe_flush();
     stop_warm_ = true;
     if (sync_)
         sync_->cancel(); // a request in flight ends now, not after its timeout (review 2026-10-19 M6)
@@ -1738,7 +1747,6 @@ tresult PLUGIN_API VirusPlugin::terminate()
         out_->stop_worker();
     }
     out_.reset();
-    return SingleComponentEffect::terminate();
 }
 
 bool VirusPlugin::panic()
@@ -1786,19 +1794,26 @@ tresult PLUGIN_API VirusPlugin::setActive(TBool state)
         set_recall_progress(0);
         syncing_ = true;
         starting_ = true;
-        sync_thread_ = std::thread([this] {
-            sync_banks();
-            warm_categories();
-            // every later connection (reconnect, resume, a Virus switched on after the start, an answer after a missed
-            // sync): the bank check again, cache first like at start (R6-1, R2-3); ends with terminate()
-            while (!stop_warm_) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                if (!stop_warm_ && start_bank_check())
-                    sync_banks(false);
-                if (!stop_warm_)
-                    file_late_dumps();
-            }
-        });
+        try {
+            sync_thread_ = std::thread([this] {
+                sync_banks();
+                warm_categories();
+                // every later connection (reconnect, resume, a Virus switched on after the start, an answer after a missed
+                // sync): the bank check again, cache first like at start (R6-1, R2-3); ends with terminate()
+                while (!stop_warm_) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    if (!stop_warm_ && start_bank_check())
+                        sync_banks(false);
+                    if (!stop_warm_)
+                        file_late_dumps();
+                }
+            });
+        } catch (const std::system_error &) { // no thread (review B31): no sync, the plug-in still plays
+            syncing_ = false, starting_ = false;
+            set_recall_progress(127);
+            if (out_)
+                out_->log("Virus TI native: could not start the sync thread: banks not read\n");
+        }
     }
     if (state && !state_loaded_ && !default_.empty()) { // new instance: the original's default project
         {
@@ -1816,7 +1831,7 @@ tresult PLUGIN_API VirusPlugin::setActive(TBool state)
     const int64_t latency_before = latency_reported_;
     if (state && out_ && out_->audio_ready() && virus_rate_for(rate_) != virus_rate()) {
         const bool ok = out_->request_rate(virus_rate_for(rate_), 3000);
-        out_->log("Virus TI native: host %.0f Hz -> the Virus at %d Hz%s\n", rate_, virus_rate(),
+        out_->log("Virus TI native: host %.0f Hz -> the Virus at %d Hz%s\n", rate_.load(), virus_rate(),
                   ok ? "" : " (not switched: the broker kept its rate)");
     }
     const tresult res = SingleComponentEffect::setActive(state);
@@ -1837,8 +1852,8 @@ void VirusPlugin::check_latency()
     const int64_t read = latency_reported_.load();
     const int64_t now = std::lround(latency_frames() * rate_ / virus_rate());
     if (latency_watch_.read_changed(read) && out_)
-        out_->log("Virus TI native: the host reads latency %lld samples (block %d, %.0f Hz)\n", (long long)read, block_,
-                  rate_);
+        out_->log("Virus TI native: the host reads latency %lld samples (block %d, %.0f Hz)\n", (long long)read, block_.load(),
+                  rate_.load());
     if (latency_watch_.announce(active_.load(), read, now) && componentHandler) {
         if (out_)
             out_->log("Virus TI native: latency now %lld samples, the host last read %lld - announced again\n",
@@ -1891,7 +1906,7 @@ tresult PLUGIN_API VirusPlugin::setupProcessing(ProcessSetup &setup)
             resampler_[vidx(vr)].setup(step);
             src = std::max(src, (size_t)(block_ * step * 1.01) + 2 * Resampler::TAPS + 8);
         }
-        sc_[vidx(vr)].setup(rate_, std::max(block_, 1), vr);
+        sc_[vidx(vr)].setup(rate_, std::max(block_.load(), 1), vr);
         out = std::max(out, (size_t)sc_[vidx(vr)].max_out() * 2);
     }
     for (auto &b : rs_src_)
@@ -2075,22 +2090,16 @@ vti::TipsFacts VirusPlugin::tips_facts() const
 
 std::vector<std::string> VirusPlugin::tips_seen() const
 {
-    std::string text;
-    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../setup-tips.seen", "rb")) {
-        char b[1024];
-        size_t n;
-        while ((n = fread(b, 1, sizeof b, f)) > 0)
-            text.append(b, n);
-        fclose(f);
-    }
-    return vti::tips_seen_parse(text);
+    std::vector<uint8_t> d;
+    vti::u8read(vti::cc::plugin_file("setup-tips.seen"), d, 1 << 16);
+    return vti::tips_seen_parse(std::string(d.begin(), d.end()));
 }
 
 void VirusPlugin::tips_save_seen(const std::vector<std::string> &seen) const
 {
     std::error_code ec;
-    std::filesystem::create_directories(vti::u8path(own_cache_dir() + "/.."), ec);
-    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../setup-tips.seen", "wb")) {
+    std::filesystem::create_directories(vti::u8path(vti::cc::plugin_dir()), ec);
+    if (FILE *f = vti::u8fopen(vti::cc::plugin_file("setup-tips.seen"), "wb")) {
         const std::string text = vti::tips_seen_text(seen);
         fwrite(text.data(), 1, text.size(), f);
         fclose(f);
@@ -2099,22 +2108,16 @@ void VirusPlugin::tips_save_seen(const std::vector<std::string> &seen) const
 
 vti::InfoState VirusPlugin::info_state() const
 {
-    std::string text;
-    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../info-page.state", "rb")) {
-        char b[256];
-        size_t n;
-        while ((n = fread(b, 1, sizeof b, f)) > 0)
-            text.append(b, n);
-        fclose(f);
-    }
-    return vti::info_state_parse(text);
+    std::vector<uint8_t> d;
+    vti::u8read(vti::cc::plugin_file("info-page.state"), d, 1 << 16);
+    return vti::info_state_parse(std::string(d.begin(), d.end()));
 }
 
 void VirusPlugin::info_save_state(const vti::InfoState &s) const
 {
     std::error_code ec;
-    std::filesystem::create_directories(vti::u8path(own_cache_dir() + "/.."), ec);
-    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../info-page.state", "wb")) {
+    std::filesystem::create_directories(vti::u8path(vti::cc::plugin_dir()), ec);
+    if (FILE *f = vti::u8fopen(vti::cc::plugin_file("info-page.state"), "wb")) {
         const std::string text = vti::info_state_text(s);
         fwrite(text.data(), 1, text.size(), f);
         fclose(f);
@@ -2125,7 +2128,7 @@ bool VirusPlugin::has_history() const
 {
     std::error_code ec;
     return std::filesystem::exists(vti::u8path(own_cache_dir() + "/RAM A"), ec) ||
-           std::filesystem::exists(vti::u8path(own_cache_dir() + "/../setup-tips.seen"), ec);
+           std::filesystem::exists(vti::u8path(vti::cc::plugin_file("setup-tips.seen")), ec);
 }
 
 bool VirusPlugin::diag_enabled()
@@ -2139,7 +2142,7 @@ void VirusPlugin::note_probe_flush()
     if (!note_probe_on_)
         return;
     std::lock_guard<std::mutex> lock(note_probe_mu_);
-    FILE *f = vti::u8fopen(own_cache_dir() + "/../diag.log", "a");
+    FILE *f = vti::u8fopen(vti::cc::plugin_file("diag.log"), "a");
     if (!f)
         return;
     const int largest = block_;
@@ -2158,20 +2161,21 @@ void VirusPlugin::diag_report()
         return;
     // a long session (the DAW open for days) must not grow the log without end either; another instance may rotate
     // the same file meanwhile, then at most a few lines go to the old file
-    vti::cc::rotate_log(own_cache_dir() + "/../diag.log", vti::cc::kPluginLogLimit);
+    vti::cc::rotate_log(vti::cc::plugin_file("diag.log"), vti::cc::kPluginLogLimit);
     note_probe_flush();
     long long drops = -1; // the editor's timer or the worker: read under the audio gate (audiogate.h)
     if (out_)
         if (AudioGate::Use ring(out_->audio_gate()); ring)
             drops = (long long)out_->audio().drops();
-    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../diag.log", "a")) {
-        fprintf(f, "%ld s: draws full %ld partial %ld, draw time %ld ms, dirty ticks %ld, process calls %ld max %ld us,"
+    if (FILE *f = vti::u8fopen(vti::cc::plugin_file("diag.log"), "a")) {
+        fprintf(f, "%ld s: draws full %ld partial %ld, draw time %ld ms (longest %.1f ms, held back %ld), dirty ticks %ld, process calls %ld max %ld us,"
                    " over block time %ld, audio %d drops %lld, queued %d, host %.0f Hz block %d (largest %ld)\n",
                 (long)std::time(nullptr), diag.full_draws.exchange(0), diag.part_draws.exchange(0),
-                diag.draw_us.exchange(0) / 1000, diag.dirty_ticks.exchange(0), diag.process_calls.exchange(0),
+                diag.draw_us.exchange(0) / 1000, diag.draw_max_us.exchange(0) / 1000.0, diag.paced.exchange(0),
+                diag.dirty_ticks.exchange(0), diag.process_calls.exchange(0),
                 diag.process_max_us.exchange(0), diag.process_over.exchange(0),
                 out_ ? (int)out_->audio_ready() : -1, drops,
-                out_ ? (int)out_->busy() : -1, rate_, block_, diag.block_max.exchange(0));
+                out_ ? (int)out_->busy() : -1, rate_.load(), block_.load(), diag.block_max.exchange(0));
         fclose(f);
     }
 }
@@ -2189,7 +2193,7 @@ tresult PLUGIN_API VirusPlugin::process(ProcessData &data)
             long m = p->diag.process_max_us.load();
             while (us > m && !p->diag.process_max_us.compare_exchange_weak(m, us)) {
             }
-            if (us > (long)(samples * 1000000.0 / (p->rate_ > 0 ? p->rate_ : 44100)))
+            if (us > (long)(samples * 1000000.0 / (p->rate_ > 0 ? p->rate_.load() : 44100.0)))
                 p->diag.process_over++;
             long b = p->diag.block_max.load();
             while (samples > b && !p->diag.block_max.compare_exchange_weak(b, samples)) {
@@ -2430,6 +2434,7 @@ tresult PLUGIN_API VirusPlugin::process(ProcessData &data)
             ParamValue v;
             if (!q || q->getPointCount() <= 0 || q->getPoint(q->getPointCount() - 1, offset, v) != kResultOk)
                 continue;
+            v = v >= 0.0 ? std::min(v, 1.0) : 0.0; // a host's value outside 0..1 (or NaN): lround(v * 127) overflowed
             ParamID id = q->getParameterId();
             if (id >= MIDI_MAP_BASE) { // a controller, aftertouch or pitch bend of channel (id - base) / 0x1000
                 uint8_t m[3];
@@ -3678,12 +3683,7 @@ std::vector<std::pair<std::string, std::string>> VirusPlugin::remote_template_fo
 bool VirusPlugin::load_remote_template(const std::string &path)
 {
     std::vector<uint8_t> d;
-    if (FILE *f = vti::u8fopen(path, "rb")) {
-        uint8_t buf[4096];
-        for (size_t n; (n = fread(buf, 1, sizeof buf, f)) > 0;)
-            d.insert(d.end(), buf, buf + n);
-        fclose(f);
-    }
+    vti::u8read(path, d, 1 << 20); // a template file is ~2 KB; unreadable or larger: empty, nothing taken
     int sel = ui_value("Remote Templates/Selected Template", -1);
     std::vector<std::vector<uint8_t>> records;
     {
@@ -3725,26 +3725,14 @@ bool VirusPlugin::save_remote_template(const std::string &file)
     }
     std::error_code ec;
     fs::create_directories(path.parent_path(), ec);
-    const std::string tmp = vti::u8str(path) + ".tmp";
-    FILE *f = vti::u8fopen(tmp, "wb");
-    if (!f)
-        return false;
-    bool ok = fwrite(d.data(), 1, d.size(), f) == d.size();
-    ok = fclose(f) == 0 && ok;
-    if (ok)
-        fs::rename(vti::u8path(tmp), path, ec);
-    if (!ok || ec) {
-        fs::remove(vti::u8path(tmp), ec);
-        return false;
-    }
-    return true;
+    return vti::u8write_atomic(vti::u8str(path), d);
 }
 
 std::vector<KnobTemplate> VirusPlugin::knob_templates()
 {
     std::lock_guard<std::mutex> lk(remote_mu_);
     if (!knob_templates_read_ && files_) {
-        knob_templates_ = files_->knob_templates(); // ~30 ms: only when the menu opens the first time
+        knob_templates_ = files_->knob_templates(); // a copy of what initialize() found with the init patches
         knob_templates_read_ = true;
     }
     return knob_templates_;
@@ -3769,7 +3757,7 @@ void VirusPlugin::load_banks()
                 fprintf(stderr, "Virus TI native: library %s/%s: %d patch(es) skipped (damaged or unknown format: %s)\n",
                         root.menu.c_str(), lib.name.c_str(), lib.skipped, why.c_str());
                 if (diag_enabled())
-                    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../diag.log", "a")) {
+                    if (FILE *f = vti::u8fopen(vti::cc::plugin_file("diag.log"), "a")) {
                         fprintf(f, "%ld Virus TI native: library %s/%s: %d patch(es) skipped (damaged or unknown format: %s)\n",
                                 (long)std::time(nullptr), root.menu.c_str(), lib.name.c_str(), lib.skipped,
                                 why.c_str());
@@ -4037,19 +4025,24 @@ void VirusPlugin::after_reconnect()
         return; // the running probe goes once more
     if (reconnect_thread_.joinable())
         reconnect_thread_.join(); // the previous one has finished (busy was false)
-    reconnect_thread_ = std::thread([this] {
-        do {
-            while (!stop_warm_ && reconnect_again_.exchange(false))
-                probe_virus_ready();
-            ready_ = true;
-            // process() anchors and pings now; notes wait for its marker like at a first start (at most 3 s)
-            const int64_t tm = now_ms();
-            while (!stop_warm_ && out_ && out_->marker.load() < 0 && now_ms() - tm < 3000)
-                std::this_thread::sleep_for(std::chrono::milliseconds(20));
-            starting_ = false;
-            reconnect_busy_ = false;
-        } while (!stop_warm_ && reconnect_again_.load() && !reconnect_busy_.exchange(true));
-    });
+    try {
+        reconnect_thread_ = std::thread([this] {
+            do {
+                while (!stop_warm_ && reconnect_again_.exchange(false))
+                    probe_virus_ready();
+                ready_ = true;
+                // process() anchors and pings now; notes wait for its marker like at a first start (at most 3 s)
+                const int64_t tm = now_ms();
+                while (!stop_warm_ && out_ && out_->marker.load() < 0 && now_ms() - tm < 3000)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                starting_ = false;
+                reconnect_busy_ = false;
+            } while (!stop_warm_ && reconnect_again_.load() && !reconnect_busy_.exchange(true));
+        });
+    } catch (const std::system_error &) { // no thread (review B31): as if the probe had ended; the next reconnect tries again
+        ready_ = true, starting_ = false;
+        reconnect_busy_ = false;
+    }
 }
 
 // the sync thread's poll (R6-1): a bank check asked for by a probe, and no RAM job runs. syncing_ is set under
@@ -4785,6 +4778,8 @@ bool VirusPlugin::download_bank(int bank)
     if (bank < 0 || bank > 3 || !sync_ || !out_ || !out_->connected())
         return false;
     std::lock_guard<std::mutex> g(download_mu_);
+    if (stop_warm_) // closing: shutdown() has joined (or is about to join) the thread under this lock (review B33)
+        return false;
     if (syncing_.load()) // under the lock: a bank check starts under it too (start_bank_check)
         return false;
     if (downloading_.exchange(true)) { // a download or a RAM write runs (one at a time)
@@ -4794,58 +4789,64 @@ bool VirusPlugin::download_bank(int bank)
     if (download_thread_.joinable())
         download_thread_.join(); // the previous one has ended (downloading_ was false)
     sync_->hold_late(true); // a dump kept from before could be older than what it reads (T18)
-    download_thread_ = std::thread([this, bank] {
-        Bank old, cache;
-        {
-            std::lock_guard<std::mutex> lk(banks_mu_);
-            auto &b = banks_[bank];
-            b.resize(128);
-            for (int p = 0; p < 128; p++)
-                old[p] = b[p], b[p].clear();
-            drop_.forget(); // the bank is read again: an undo could write over it
-        }
-        // our LCD shows the progress and the time left (the original shows it only on the Virus; user wish)
-        const int64_t t0 = now_ms();
-        auto lcd = [this, bank](const std::string &param, const std::string &value) {
-            std::lock_guard<std::mutex> lk(values_mu_);
-            lcd_param_ = param, lcd_value_ = value;
-            lcd_part_.clear(), lcd_orig_.clear();
-            lcd_dirty_ = true;
-        };
-        const std::string what = "Downloading " + bank_name(bank);
-        lcd(what, download_progress(0, 0));
-        ui_dirty_ = true;
-        if (out_)
-            out_->log("Virus TI native: download of RAM %c started\n", 'A' + bank);
-        int n = sync_->read_bank(bank + 1, cache, [&](int p) {
+    try {
+        download_thread_ = std::thread([this, bank] {
+            Bank old, cache;
             {
                 std::lock_guard<std::mutex> lk(banks_mu_);
-                banks_[bank][p] = cache[p];
+                auto &b = banks_[bank];
+                b.resize(128);
+                for (int p = 0; p < 128; p++)
+                    old[p] = b[p], b[p].clear();
+                drop_.forget(); // the bank is read again: an undo could write over it
             }
-            lcd(sync_lcd_title(what, cc::patch_name(cache[p])), download_progress(p + 1, now_ms() - t0));
+            // our LCD shows the progress and the time left (the original shows it only on the Virus; user wish)
+            const int64_t t0 = now_ms();
+            auto lcd = [this, bank](const std::string &param, const std::string &value) {
+                std::lock_guard<std::mutex> lk(values_mu_);
+                lcd_param_ = param, lcd_value_ = value;
+                lcd_part_.clear(), lcd_orig_.clear();
+                lcd_dirty_ = true;
+            };
+            const std::string what = "Downloading " + bank_name(bank);
+            lcd(what, download_progress(0, 0));
             ui_dirty_ = true;
-        }, &stop_warm_);
-        lcd(n == 128 ? "Download done" : "Download stopped", "");
-        {
-            std::lock_guard<std::mutex> lk(banks_mu_);
-            auto &b = banks_[bank];
-            for (int p = 0; p < 128; p++)
-                if (cache[p].empty())
-                    b[p] = old[p];
-                else
-                    old[p] = cache[p];
-            if (n == 128) // every slot read from the Virus just now
-                ram_confirmed_[bank] = true;
-        }
-        std::string dir = bank_cache_dir();
-        if (!dir.empty())
-            save_bank_file(dir + "/RAM " + (char)('A' + bank), old);
-        if (out_)
-            out_->log("Virus TI native: download of RAM %c %s\n", 'A' + bank, n == 128 ? "done" : "stopped");
-        ui_dirty_ = true;
+            if (out_)
+                out_->log("Virus TI native: download of RAM %c started\n", 'A' + bank);
+            int n = sync_->read_bank(bank + 1, cache, [&](int p) {
+                {
+                    std::lock_guard<std::mutex> lk(banks_mu_);
+                    banks_[bank][p] = cache[p];
+                }
+                lcd(sync_lcd_title(what, cc::patch_name(cache[p])), download_progress(p + 1, now_ms() - t0));
+                ui_dirty_ = true;
+            }, &stop_warm_);
+            lcd(n == 128 ? "Download done" : "Download stopped", "");
+            {
+                std::lock_guard<std::mutex> lk(banks_mu_);
+                auto &b = banks_[bank];
+                for (int p = 0; p < 128; p++)
+                    if (cache[p].empty())
+                        b[p] = old[p];
+                    else
+                        old[p] = cache[p];
+                if (n == 128) // every slot read from the Virus just now
+                    ram_confirmed_[bank] = true;
+            }
+            std::string dir = bank_cache_dir();
+            if (!dir.empty())
+                save_bank_file(dir + "/RAM " + (char)('A' + bank), old);
+            if (out_)
+                out_->log("Virus TI native: download of RAM %c %s\n", 'A' + bank, n == 128 ? "done" : "stopped");
+            ui_dirty_ = true;
+            sync_->hold_late(false);
+            downloading_ = false;
+        });
+    } catch (const std::system_error &) { // no thread (review B31): not downloaded
         sync_->hold_late(false);
         downloading_ = false;
-    });
+        return false;
+    }
     return true;
 }
 
@@ -5012,10 +5013,7 @@ bool VirusPlugin::backup_ram(std::vector<BankDrop::Write> &w, const std::string 
     const std::vector<RamBackup::Patch> lost = RamBackup::to_back_up(w, before);
     if (lost.empty())
         return true;
-    char date[16] = "undated";
-    const time_t now = time(nullptr);
-    if (const struct tm *lt = localtime(&now))
-        strftime(date, sizeof date, "%Y-%m-%d", lt);
+    const std::string date = vti::cc::local_time("%Y-%m-%d", time(nullptr));
     const std::string dir = library_dir();
     std::error_code ec;
     std::filesystem::create_directories(vti::u8path(dir), ec);
@@ -5099,14 +5097,21 @@ bool VirusPlugin::send_ram_writes(std::vector<BankDrop::Write> w, const std::str
         download_thread_.join(); // the previous one has ended (downloading_ was false)
     if (sync_)
         sync_->hold_late(true); // a dump kept from before could be older than what it writes (T18)
-    download_thread_ = std::thread([this, w = std::move(w), rename, on_fail]() mutable {
-        if (!write_ram(w, rename) && on_fail)
-            on_fail();
-        ui_dirty_ = true;
+    try {
+        download_thread_ = std::thread([this, w = std::move(w), rename, on_fail]() mutable {
+            if (!write_ram(w, rename) && on_fail)
+                on_fail();
+            ui_dirty_ = true;
+            if (sync_)
+                sync_->hold_late(false);
+            downloading_ = false;
+        });
+    } catch (const std::system_error &) { // no thread (review B31): nothing written, refused like a busy Virus
         if (sync_)
             sync_->hold_late(false);
         downloading_ = false;
-    });
+        return false;
+    }
     return true;
 }
 
@@ -5839,11 +5844,21 @@ void VirusPlugin::send_state()
 
 tresult PLUGIN_API VirusPlugin::setState(IBStream *state)
 {
+    if (!state)
+        return kInvalidArgument;
+    // a project's state is ~100 KB (16 dumps, ~2000 controller records): far more is no state of ours (review B29)
+    constexpr size_t kMaxState = size_t{16} << 20;
     std::vector<uint8_t> d;
     char buf[4096];
     int32 got = 0;
-    while (state->read(buf, sizeof buf, &got) == kResultOk && got > 0)
+    while (state->read(buf, sizeof buf, &got) == kResultOk && got > 0) {
+        if (d.size() + (size_t)got > kMaxState) {
+            if (out_)
+                out_->log("Virus TI native: setState larger than %zu MB: not read\n", kMaxState >> 20);
+            return kResultFalse;
+        }
         d.insert(d.end(), buf, buf + got);
+    }
     auto recs = parse_container(d);
     if (out_)
         out_->log("Virus TI native: setState %zu bytes, %zu records, part 1 \"%s\"\n", d.size(), recs.size(),
@@ -5922,6 +5937,8 @@ tresult PLUGIN_API VirusPlugin::setState(IBStream *state)
 
 tresult PLUGIN_API VirusPlugin::getState(IBStream *state)
 {
+    if (!state)
+        return kInvalidArgument;
     std::vector<uint8_t> d;
     std::map<int, std::vector<uint8_t>> edited; // parts that compare: the project keeps their edit
     {
@@ -5955,7 +5972,9 @@ tresult PLUGIN_API VirusPlugin::getState(IBStream *state)
             d = build_container(recs);
     }
     int32 done = 0;
-    return state->write(d.data(), (int32)d.size(), &done);
+    // all of it or a failure the host sees (review B29: a short write passed as kResultOk)
+    const tresult r = state->write(d.data(), (int32)d.size(), &done);
+    return r == kResultOk && done == (int32)d.size() ? kResultOk : kResultFalse;
 }
 
 } // namespace vti

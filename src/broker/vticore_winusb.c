@@ -178,6 +178,8 @@ static DWORD WINAPI reader(LPVOID p)
 vti *vti_open(vti_rx_cb cb, void *user)
 {
     vti *v = calloc(1, sizeof *v);
+    if (!v)
+        return NULL;
     v->cb = cb;
     v->user = user;
     v->stop_ev = CreateEventW(NULL, TRUE, FALSE, NULL); // manual reset: both readers see it
@@ -191,9 +193,16 @@ vti *vti_open(vti_rx_cb cb, void *user)
     uint8_t eps[2] = {VTI_EP_MI03_IN, VTI_EP_MI04_IN};
     for (int i = 0; i < 2; i++) {
         rd_arg *a = malloc(sizeof *a);
-        a->v = v;
-        a->ep = eps[i];
-        v->rd[i] = CreateThread(NULL, 0, reader, a, 0, NULL);
+        if (a) {
+            a->v = v;
+            a->ep = eps[i];
+        }
+        if (!a || !(v->rd[i] = CreateThread(NULL, 0, reader, a, 0, NULL))) { // without its reader the Virus stalls (E042)
+            free(a);
+            vti_log("vti: no reader thread for ep %02x\n", eps[i]);
+            vti_close(v);
+            return NULL;
+        }
     }
     if (vti_write(v, VTI_EP_MI03_OUT, HANDSHAKE, sizeof HANDSHAKE)) {
         vti_close(v);
@@ -211,11 +220,16 @@ void vti_close(vti *v)
         vti_link(v, 0);
     if (v->stop_ev)
         SetEvent(v->stop_ev);
+    int stuck = 0;
     for (int i = 0; i < 2; i++)
         if (v->rd[i]) {
-            WaitForSingleObject(v->rd[i], 2000);
+            stuck |= WaitForSingleObject(v->rd[i], 2000) != WAIT_OBJECT_0;
             CloseHandle(v->rd[i]);
         }
+    if (stuck) { // a reader still runs on v and its handles: leak them rather than free under it (review A5)
+        vti_log("vti: a reader did not stop within 2 s, its device memory is left allocated\n");
+        return;
+    }
     for (int i = 0; i < 2; i++) {
         if (v->mi[i].usb)
             WinUsb_Free(v->mi[i].usb);
@@ -314,7 +328,7 @@ int vti_control(vti *v, uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue
     return (int)done;
 }
 
-int vti_audio(vti *v, int on, const char *event_name) // broker audio exists only behind vtibroker (vticore_pipe.c)
+int vti_audio(vti *v, int on, const char *event_name) // broker audio exists only behind vtibroker
 {
     (void)v;
     (void)on;

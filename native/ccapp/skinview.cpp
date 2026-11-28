@@ -203,7 +203,7 @@ void SkinView::draw_control(CDrawContext *ctx, const SkinNode &n)
             bitmap(n.background)->draw(ctx, r, CPoint(0, n.h));
             return;
         }
-        if (!b)
+        if (!b || n.h <= 0) // a frame height of 0 in the skin: no frames to pick (review A33)
             return;
         int frames = (int)(b->getHeight() / n.h), f = 0;
         if (state_.ready(n) && frames > 1) { // pulse up and down

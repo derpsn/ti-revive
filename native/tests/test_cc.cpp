@@ -9,6 +9,8 @@
 #include <fstream>
 #ifndef _WIN32
 #include <unistd.h>
+#include <csignal>
+#include <sys/resource.h>
 #endif
 
 using namespace vti::cc;
@@ -104,20 +106,27 @@ TEST(cc_write_syx)
 TEST(cc_write_syx_failure_keeps_the_file) // review 2026-11-25 E9: a full disk fails only at the flush (close)
 {
 #ifndef _WIN32
-    std::error_code ec;
-    if (!fs::exists("/dev/full", ec))
-        SKIP("no /dev/full");
     const fs::path d = scratch() / "full";
     fs::remove_all(d);
     fs::create_directories(d);
     const std::string path = (d / "bank.syx").string();
     std::string err;
     CHECK(write_syx({Dump{0xF0, 0x01, 0xF7}}, path, err));
-    fs::create_symlink("/dev/full", path + ".tmp");
-    CHECK(!write_syx({Dump{0xF0, 0x02, 0xF7}}, path, err) && !err.empty());
-    // not a symlink first: reading /dev/full never ends
-    CHECK(!fs::is_symlink(path) && fs::file_size(path) == 3);
-    CHECK(!fs::exists(fs::symlink_status(path + ".tmp")));
+    // the disk is full when the buffered data is flushed at fclose: a file size limit (SIGXFSZ ignored -> EFBIG)
+    struct rlimit was, small;
+    getrlimit(RLIMIT_FSIZE, &was);
+    void (*was_sig)(int) = signal(SIGXFSZ, SIG_IGN);
+    small = was, small.rlim_cur = 2;
+    setrlimit(RLIMIT_FSIZE, &small);
+    const bool saved = write_syx({Dump{0xF0, 0x02, 0x03, 0xF7}}, path, err);
+    setrlimit(RLIMIT_FSIZE, &was);
+    signal(SIGXFSZ, was_sig);
+    CHECK(!saved && !err.empty());
+    CHECK(fs::file_size(path) == 3);
+    size_t left = 0;
+    for (auto it = fs::directory_iterator(d); it != fs::directory_iterator(); ++it)
+        left++;
+    CHECK_EQ(left, 1u); // no temp file behind
     fs::remove_all(d);
 #endif
 }

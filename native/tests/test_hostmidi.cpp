@@ -162,3 +162,13 @@ TEST(hostmidi_a_load_drops_the_waiting_controllers_of_its_channel)
     p.drop_loaded(16);                 // out of range: nothing
     CHECK(p.take(3, 40, s));
 }
+
+TEST(pedal_switch_other_controllers_always_go)
+{
+    // review A21: a controller outside 64..69 shifted out of range (undefined); it is no switch and always goes
+    PedalSwitch p;
+    CHECK(p.flips(0, 64, 127));
+    for (int ctl : {-1, 0, 63, 70, 127, 1000})
+        CHECK(p.flips(0, ctl, 127) && p.flips(0, ctl, 127));
+    CHECK(!p.flips(0, 64, 127)); // the pedal's own state untouched
+}

@@ -25,7 +25,8 @@ die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
 CC_EXE="Virus Control Center.exe" # optional: the Control Center app takes its look from it
 find_msi() { # $1 = the path given on the command line, else the usual places
-    if [ -n "${1:-}" ]; then printf '%s\n' "$1"; return; fi
+    # absolute, because unpack_msi runs msiextract inside its target folder
+    case "${1:-}" in "") ;; /*) printf '%s\n' "$1"; return ;; *) printf '%s\n' "$PWD/$1"; return ;; esac
     for d in "$HERE" "$HOME/Downloads" "$HOME/Desktop" "$HOME"; do
         for f in "$d"/*Virus*TI*64-bit*.msi; do [ -f "$f" ] && printf '%s\n' "$f" && return; done
     done
@@ -70,7 +71,7 @@ access_src() { # $1 = unpacked .msi -> its .../Access Music/Virus TI folder, emp
 [ "$(id -u)" -ne 0 ] || die "run install.sh as your normal user, not as root (it asks for sudo when needed)"
 
 # --- 1. USB access (udev) ------------------------------------------------------------------------------------------
-RULE=/etc/udev/rules.d/70-tirevive-virus-ti.rules
+RULE=${TIREVIVE_UDEV_RULE:-/etc/udev/rules.d/70-tirevive-virus-ti.rules} # the variable: tests only
 virus_accessible() { # a plugged-in Virus whose device node we may already open (rule present or other setup)
     for d in /sys/bus/usb/devices/*; do
         [ "$(cat "$d/idVendor" 2>/dev/null)" = 133e ] && [ "$(cat "$d/idProduct" 2>/dev/null)" = 0815 ] || continue
@@ -79,7 +80,9 @@ virus_accessible() { # a plugged-in Virus whose device node we may already open 
     done
     return 1
 }
-if ! cmp -s "$HERE/udev/70-tirevive-virus-ti.rules" "$RULE" 2>/dev/null && ! virus_accessible; then
+# an installed rule that differs is always replaced (an older one may lack what this version needs); without one,
+# a Virus we may already open (another setup) needs none
+if ! cmp -s "$HERE/udev/70-tirevive-virus-ti.rules" "$RULE" 2>/dev/null && { [ -e "$RULE" ] || ! virus_accessible; }; then
     say "USB access for the Virus TI (udev rule, needs sudo)"
     sudo install -m 0644 "$HERE/udev/70-tirevive-virus-ti.rules" "$RULE"
     sudo udevadm control --reload
@@ -131,6 +134,8 @@ else
 fi
 
 # --- 3. the Access files ---------------------------------------------------------------------------------------------
+# the same Access file setup for the other platforms: "src/installer-mac/Set up Access Virus TI files.command",
+# src/installer/tirevive-access.ps1
 say "Access Virus TI files"
 OLD_COMMON="$PREFIX/drive_c/Program Files/Access Music/Virus TI/Common" # TI Revive 0.7 installed Access into Wine
 if [ -f "$ACCESS/Common/Virus Control.dll" ] && ! pe64 "$ACCESS/Common/Virus Control.dll"; then
@@ -201,6 +206,8 @@ say "plug-in TI Revive"
 mkdir -p "$HOME/.vst3"
 # the classic plug-in of TI Revive 0.7 (through yabridge) and the test builds: the new plug-in opens their projects
 rm -f "$VST3_DIR/Virus TI (TI Revive).vst3"
+# the old bundle names are also listed in src/installer-linux/uninstall.sh, src/installer-mac/scripts/postinstall,
+# "src/installer-mac/Uninstall TI Revive.command", native/packaging/windows/native.wxs: change them together
 # the plug-in's earlier bundle names (same class id: a DAW would see two copies); "TI Revive Virus Control" until 0.8.42
 rm -rf "$HOME/.vst3/yabridge/Virus TI (TI Revive).vst3" "$HOME/.vst3/VirusTINative.vst3" "$HOME/.vst3/TI Revive.vst3" \
     "$HOME/.vst3/TI Revive Virus Control.vst3"

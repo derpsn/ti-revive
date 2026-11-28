@@ -4,6 +4,7 @@
 // instance per Virus as well (E553). Slot 1 keeps today's names; slot N appends "-N" to its pipe, socket, audio
 // memory and log. Plain C, no I/O; the unit test calls it.
 #pragma once
+#include <stdio.h>
 #include <string.h>
 
 #define VTI_SLOTS_MAX 4
@@ -42,10 +43,23 @@ static inline void vti_slot_suffix(char out[4], int slot)
     }
 }
 
+// The broker's Unix socket for `uid` and slot suffix `sfx`: in `runtime_dir` ($XDG_RUNTIME_DIR, systemd's %t: only
+// the user can create files there, audit 20) on Linux, else /tmp (no runtime dir, or macOS: the launchd service of
+// the libusb package owns /tmp/vtibroker-<uid>.sock). Only an absolute runtime_dir counts.
+static inline void vti_sock_path(char *out, size_t cap, unsigned uid, const char *sfx, const char *runtime_dir)
+{
+#ifdef __APPLE__
+    runtime_dir = NULL;
+#endif
+    if (runtime_dir && runtime_dir[0] == '/')
+        snprintf(out, cap, "%s/vtibroker-%u%s.sock", runtime_dir, uid, sfx);
+    else
+        snprintf(out, cap, "/tmp/vtibroker-%u%s.sock", uid, sfx);
+}
+
 // a MIDI port or client name: "TI Revive <what>" for Virus 1, "TI Revive N <what>" for Virus N; `what` "" gives
 // "TI Revive" / "TI Revive N". Until 0.8.42 "Virus TI ..." like the Access driver (renamed 2026-11-19, branding); on
 // macOS DAWs keep finding the ports by their unique IDs (vti_slot_port_id, unchanged)
-#include <stdio.h>
 static inline void vti_slot_port_name(char *out, size_t cap, const char *what, int slot)
 {
     char num[3] = "";

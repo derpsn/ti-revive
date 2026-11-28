@@ -16,7 +16,7 @@ Last update: 2026-11-25: rc9 (v0.8.44-rc9 at d255cc1, CI 45626198935 green) = rc
   latency nudge (E580), burst learning fix (E581), library-save logging (E576). 897 tests, hil.sh ALL PASS. After rc6: E582 (Logic burst room + crossfaded rest), E584 (Logic loss paid twice: window waits beyond +JUMP); 915 tests; in rc7. Mutation timelinefollow.h: 88/119 + the E582/E584 kills, every survivor left equivalent.
 - Our TI2 Desktop: back on Linux (2026-11-22 evening, broker socket active); it was on the Mac 16:40-~18:00 for the #41 Logic test and was FROZEN on arrival there (power cycle; cause open). User flashed ROM Z on it in early November (E500). From a VM: VM=win11 scripts/vm.sh detach, then systemctl --user start tirevive-broker.socket.
 - E591 fixes A-E DONE (E592, user 2026-11-24 'implement all'): efcbd2e (A-C), df67e27 (D broker), E commit (re-send cables once, then display warning). 946 tests; TI2 hil.sh ALL PASS + --idle-first clean with the new plug-in AND new broker (installed in ~/.local/lib/tirevive, backup vtibroker.bak-rc8). Not run: a Virus that really stops answering, D on macOS. rc9 (user 2026-11-25 go): release text + What's New for E591/E592 added, tag v0.8.44-rc9; CI 45626198935 green (11 jobs, pre-release 8 assets); posted #51 -7166973072, #48 -7166973580, #37 -7166974106 (2026-11-25). Linux: rc9 by install.sh (plug-in 11c8f137, broker 756b6fe9). win11: MSI /quiet exit 0 (VST3 fd22e21a), VM shut down. Mac: pkg 95e67abe + INSTALL-COMMAND.txt + "Install test build.command" in ~/Downloads/TI-Revive-0.8.44-rc9, user installs. Waits: edy013 (#51 RAM D fill), encoderaudio (#48 rc9; hub must stay, answered 11-25 why reopening helps + hub-port tip; open: check whether a session reopen also restarts the broker MIDI IN read), packman83 (#37 rc9 Logic).
-- Issues 2026-11-24 late (with the user): #37 asked for rc8, #48 asked (no SysEx replies in exactly the distorted sessions, cured by a Virus off/on?), #40 answered, #43 + #38 closed. Open: 53 51 48 47 45 42 40 37 32.
+- Issues 2026-11-24 late (with the user): #37 asked for rc8, #48 asked (no SysEx replies in exactly the distorted sessions, cured by a Virus off/on?), #40 answered, #43 + #38 closed. Open (2026-11-27): 60 53 51 48 40 37 32.
 - Issues 2026-11-25 (with the user): only #48 new (Virus on a USB3 hub, nothing seen at the drop) -> posted: connect directly, retest (issuecomment-7164087174). #47 + #45 reach 7 quiet days on 11-26, #53 on 11-30.
 - REAPER test of the rc8 code DONE 2026-11-24 (log): keep-rest on = 0 fades / 0 jumps at 512, 2048 and with Anticipative FX (Logic-like 12.4k read-ahead, 1 Play only; off: fades + blocks pulled back); duplicate-track takeover 2 s. Maybe 4-5 more Anticipative Plays.
 - Linux: ~/.vst3 = dev build 10e55b71 (9a87ec5: rc8 + E592 fixes; broker c5441638 installed), for the user's REAPER test 2026-11-24; REAPER 7.86 portable, 7.83 backup in ~/.local/opt/dl/reaper/backup-7.83-20261124); rc7 code 52fa05f5 in work/plugin-backup-rc7-52fa05f5; 40329e7a in work/plugin-backup-rc6b-40329e7a, rc6 code in work/plugin-backup-rc6-85bf0974. Backups: work/plugin-backup-ce68817b (rc3 code),
@@ -51,7 +51,7 @@ Last update: 2026-11-25: rc9 (v0.8.44-rc9 at d255cc1, CI 45626198935 green) = rc
 | #40 | (ours) macOS libusb audio as an option? | #39 reporter; #37 = first real data point (works) | 2026-11-13 |
 | #53 | NEW 2026-11-22: M1 Max, Sequoia 15.8.3, latest OS + TI Revive: every note distorted with an echo/repeat, some lag; asks if ROM banks can load automatically at start. User answered 2026-11-23 (power cycle after the first bank sync, else plug-in log). Echo/repeat may be the FAQ "every note sounds twice" case (E530/E531); ROM question not answered yet | reporter: log | 2026-11-23 |
 | #43 | original TI, OS 5.1.7, macOS: `tirevive-cc restore` stops at a fixed slot ("another patch after the restore"). CAUSE (E549): byte 10 (patch flags, E156) is not kept by the Virus on a RAM store, the read-back compared it; Rom A slot 7 = 0x76. FIX on round-0.8.42 (controlcenter.cpp patch_difference: byte 10 left out, a real mismatch names the byte; 3 new tests); original checked with REA (stores byte 10 unchanged, no read-back). Not run on hardware. rc6 RELEASED (pre-release, tag e84ded1, CI 44121551201 all 9 jobs green, 7 assets, 20:45 UTC); reply posted. Mutation on controlcenter.cpp not done (the copy ../tirevive-mut fails unmutated, rebuild there) | reporter: test rc6 (posted issuecomment-6960600649) | 2026-11-17 |
-| #42 | Snow, M4 Pro, macOS 15.8.2: vtibroker ~33 % CPU idle; cause E547 (Snow idle stream on bulk EP 0x85, ~3300/s). rc5 TESTED by the reporter (E550): ~830/s, 15-19 %, knobs fine; 33 sync reports in 6 min (asked if audible). Reply with why + how the original does it (E548) posted (issuecomment-6957394873). NEW (user 2026-11-17): option snow-idle-slow (off by default, Control Center Options; 4 ms after 1 s quiet; broker reads the flag file every 2 s; tests first; not run on a Snow). Sim confirmed from the Snow's USB chip code (E551, S147): idle packet armed on every read, no command switches it off 2026-11-18 reporter: no dropouts or timing problems in a quick Ableton test | reporter: 0.8.42 with the option on, CPU (issuecomment-7020102746) | 2026-11-19 |
+| #42 (closed 2026-11-27, quiet) | Snow, M4 Pro, macOS 15.8.2: vtibroker ~33 % CPU idle; cause E547 (Snow idle stream on bulk EP 0x85, ~3300/s). rc5 TESTED by the reporter (E550): ~830/s, 15-19 %, knobs fine; 33 sync reports in 6 min (asked if audible). Reply with why + how the original does it (E548) posted (issuecomment-6957394873). NEW (user 2026-11-17): option snow-idle-slow (off by default, Control Center Options; 4 ms after 1 s quiet; broker reads the flag file every 2 s; tests first; not run on a Snow). Sim confirmed from the Snow's USB chip code (E551, S147): idle packet armed on every read, no command switches it off 2026-11-18 reporter: no dropouts or timing problems in a quick Ableton test | reporter: 0.8.42 with the option on, CPU (issuecomment-7020102746) | 2026-11-19 |
 | #51 | Windows 11, Apollo Twin (two clocks ~90 ppm): clicks = pull-backs at the margin (E564); fix E578 + guard fix + xrun crossfade (E579), rc6 posted (issuecomment-7083119458) | reporter: rc6, remove VTI_NATIVE_MARGIN, 15-20 min, diag.log | 2026-11-22 |
 | #48 (dup #44) | M1, Sequoia, Ableton, TI2 Keyboard, 0.8.42: distorted after reopening a saved project, only through the Mac, UMC1820 (two clocks) at 44.1 kHz (reporter 2026-11-23); reloading the SESSION (not the plug-in) fixes it. Log of 07:34: transport clean (E532), one full-scale window before a reload (E559); cause open. Log 2026-11-23 20:27 (work/issue48-1123, CC 0.8.42): 8 plug-in starts 11-20/11-23, audio complete and in step, no peak near full scale = no distorted stretch in it; first start 'Virus ready after 11.5 s (no reply to the probe)'. Asked: when distorted, update to rc7, log right after | reporter: time of the distortion, rc7 | 2026-11-23 |
 | #45 | NEW: two Viruses (TI Keyboard + TI2 Desktop) at once, one plug-in instance each, in Live. TI Revive: one Virus only (first found). Original 5.1.7 plug-in: device list, one owner instance per Virus (E553, static; driver side unknown). Replies posted (not yet, later round, asked OS + can they test: issuecomment-6980767270; follow-up with E553, asked if they used two with the original: issuecomment-6981406654) 2026-11-18 reporter (French): two editors in Ableton were always buggy with the original; will beta test; asked OS again in French (issuecomment-6984586414). DECIDED: maintainer posted 2026-11-18 it is on the list, first test build to them by Fri/Sat (2026-11-20/21) IN WORK (round-0.8.42, user 2026-11-18: one broker per Virus, assignment like the original, all 3 OS, numbered MIDI ports, ASIO stays Virus 1): devslot.h/winslot.h (-slot N, -N names, key = USB port), slotpick.h (owner per Virus, empty slot 2+ given up after 3 s, project record TIRevive/Virus), RAM cache virus-N, Mac Core Audio by USB serial in UID (UNVERIFIED), systemd tirevive-broker@N. Review findings 1-7 fixed (findings/audit-2026-11-18-multidevice.md); dev build installed on Linux with tirevive-broker@2-4 (systemd starts broker 2: checked), hil.sh ALL PASS (H1, H2x2, H3, H6). Never run with two Viruses; mismatch question not done | reporter: test 0.8.42 with both Viruses (released 2026-11-19, issuecomment-7020102331) | 2026-11-19 |
@@ -86,6 +86,11 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
 
 ## NEXT
 
+- 2026-11-28: code review 66/67 + audit 20/20 DONE (log/2026-11.md). rc3 green; Linux + win11 installed, hil.sh ALL PASS;
+  Mac folder work/release-0.8.45-rc3/mac (Mac asleep). Checklist claude.ai/artifact/QSy5D8zFztPMwN6YW5iHvW: Linux 4/4, Win 3/3 pass; Mac 3/3: checklist 10/10 pass. User: release now (2026-11-28). Open: H1 quiet notes VM, ASIO buffer in Live.
+- Side project, not part of the rounds (user 2026-11-27): the Modern skin lives on branch `skin-modern` (f3fb89f7,
+  local only); its state is in findings/skin-modern.md on that branch.
+
 0. **Wait on rc9 (2026-11-25):** #51 edy013 (RAM D fills? handover line if the double instance returns), #48 encoderaudio
    (rc9 with the hub; open for us: does a session reopen also restart the broker's MIDI IN read, or only the plug-in's
    connection), #37 packman83 (rc9 in Logic: Record Enable, Small, I/O 256, 5 Plays on the notes, log). Mac: user runs
@@ -97,37 +102,34 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
    owner = user/SYSTEM/Administrators) -> win11 VM, normal + elevated DAW, before the release; ASIO stop-from-callback (D3); macOS broker/keyport (B8). Left:
    directmon.h `which` param (needs plug-in caller), plug-in still waits 3 s on Broker::audio (late replies now dropped),
    store_patch refusing an unsynced RAM bank ("Not saved") is kept, decided by the user 2026-11-26.
-0c. **Research original vs ours (2026-11-26): ALL FIXED, nothing run on hardware.** 12 static agents
-   (work/research-2026-11-26/SUMMARY.md, R1-R12.md), then T1-T23 one worker at a time (work/fix-todo-2026-11-26.md:
-   23 resolved with summary, 9 kept with reason), commits 01aceeb..HEAD, E594-E602, broker protocol 6 (WRITTEN +
-   OWNER). vtitests 1081, brokertests 13, ctest 8/8 (serial + -j4), Linux broker + mingw exes clean; macOS not built.
-   Then (user 2026-11-26) clean sync like the original (E161 update): no notes/F8 during a bank sync, no pause.
-   hil.sh on the TI2 with this build installed (backup of 0.8.43 in work/installed-backup-0.8.43): H1-H6 pass
-   (work/hil/2026-11-26-clean-sync; first note now ~12 s, limit 15 s, d1160ca). Sweep blocks 32-512 x 44.1/48 kHz:
-   10/10 pass, 0 drops, margin min 307 (work/hil/2026-11-26-sweep). Full sync with notes: 512/512, silent, cache
-   identical (E161, index 210167a). Round build stays installed; NEXT: the user's own tests (DAW smoke, TI2 items
-   below; asked 2026-11-26), then CI build + hil-win in the win11 VM. REAPER smoke: ok, incl. the user's Virus
-   off/on while playing (E603: back in ~20 s, no drops after it).
-   CI 45879876669 failed (test_broker -O3 fortify truncation, fixed in the test); running: CI 45880538174 (c561c9b),
-   CI green; installed on Linux (install.sh) + win11 (setup.exe /quiet). L1: hil.sh H1-H6 pass, sweep 10/10 (no sleep:
-   needs the user's sudo). W1 hil-win: H1/H2-2/H3/H6 pass, H2-1 drift +173 ppm only (8-note fit, VM clock, as 0.8.42).
-   User Linux: LC4 L2-L6 pass (L5/L6 into RAM D), L7 skipped (no original project), logs clean. LC5 sleep pass
-   (work/hil/20261126-204122, slept 46 s). User Windows (VM, Live): WC4 W2
-   (buffer 256 only) W3 W4 pass; user's hil-win rerun ALL PASS (results-20261126-205652). Mac: MC4 MC5 M2 pass (user), M1 hil-mac
-   FAIL first, then rerun ALL PASS: NOT a stall (E604) - the clean sync re-read 80 RAM D slots changed in L5 (~1 s each),
-   reproduced on Linux, cache identical after; the stopped-sync log line now gives the count. Virus on Linux;
-   RELEASE 0.8.44 (user 2026-11-26: skip L7/W2-64/1024, ship): release text + What's New done (ac2d5eb);
-   site check DONE (sync no longer 'play while it runs', ROM banks, 6/3 asks E594, CC refuses while a plug-in plays,
-   handover E590, tests 1081, backup test scope; T9 automation hold has no E entry, wording no longer says 'like the
-   original'). #47 #45 closed (user). NEXT: merge -F -> verify -> tag v0.8.44 -> CI -> site.yml -> installs -> #37 logs; checklist scripts/checklists/round-0.8.44.json published as
-   https://claude.ai/artifact/FhiP1yThnqamYEPb36HBig (marks in rounds/0.8.44/marks).
-   OWED before the release (ask the user first, rule 2, no flood): hil.sh + hil-win at blocks 32-512 both rates
-   (T14 NP 4 = top risk); win11 VM (T5 writes, T17 overlapped reads, T6/T7 protocol, B4-B6/D17 pipe security);
-   own TI2: a request that never answers (T1), reconnect + late Virus (T3/T4), state upload with notes (T7/T8/T9),
-   SAVE/sort/close (T2/T11), CC backup + restore into a user-named RAM bank (T19), original routed project (T15).
-1. **Quiet issues:** #47 + #45 reach 7 days on 2026-11-26 (close message, with the user), #53 on 2026-11-30, #42 asked
-   nothing since 11-20 (reporter promised a weekend test). #51: remove VTI_NATIVE_MARGIN, 15-20 min, diag.log.
-2. **#37 after A+B (code in since rc8, E589):** still open: a burst without a Play window (setActive alone, Play again
+0c. **0.8.44 (2026-11-26): research fix run T1-T23 + clean sync, all tested, MERGED main fd5c1eb, tag v0.8.44.**
+   Details: findings/log/2026-11.md "Round 0.8.44 tests and release". Release CI 45894541189: native-windows unit test
+   failed once (bank file save race, Windows), rerun passed: RELEASED 2026-11-26 21:09 UTC, Latest, 8 assets. Fix c133b9c
+   on round-0.8.45 (not in 0.8.44). Site rebuilt (site.yml 45956400000, live: 0.8.44, 1081 tests). Release installed:
+   Linux (install.sh), win11 VM (setup /quiet exit 0, VST3 28eebf43, VM shut down). Mac asleep: push
+   work/rel-0.8.44/mx/TI-Revive-0.8.44-release to ~/Downloads when awake, user double-clicks the install command. #37 rc9 analysed (E605): kept rest stacks
+   across Plays without a pre-shift; NOT fixed (user 2026-11-27): a start right on the notes is Access' own limit,
+   README + site now advise a pre-roll of a bar or two. Answered 2026-11-27 (issuecomment-7215812242). User: keep #37 OPEN. 2026-11-27 13:22 packman83 agreed
+   (pre-roll) and reported knob automation in Logic coarse + Logic lagging (E607: editor partial repaints 25-35 ms on his
+   Mac, up to 7.3 s per 10 s on the main thread); no reply posted yet. DECIDED (user 2026-11-27): no quick fix;
+   editor render pipeline rework in 0.8.45 (1 profile on the Mac, 2 frame pacing, 3 one redraw path, 4 CI render budget).
+   Mac measured (E608): M3 repaints 0.3-1.6 ms. BUT the user reproduced the coarse lane on our Mac (15:23, screenshot
+   work/ui-perf/mac/shot2.png: [1] Filter1 Cutoff blocky, [3] smooth) with cheap draws -> drawing is NOT the cause there;
+   E609: Logic lag reproduced (AU host 180 % CPU, Apple AU bridge parameter traffic); Logic only: unchanged pitch bend,
+   RPN, pan, volume sent again and again; Live clean as VST3 AND as AU. After a Logic restart NOT reproduced (heavy Latch
+   on 4 parts, the old heavy project): the lockup was likely an after-effect of our `sample` runs. Back to E607 for
+   packman83 (slow repaints on his old Mac): framepace WIRED (viruseditor mark/flush_dirty, 16 ms frame timer), log
+   line + longest repaint + held back; Linux: 4 pages identical partial vs full (nativehost, real TI2). v0.8.45-rc1 PRE-RELEASED
+   (tag on 1362ced, CI 46022038430 all 11 jobs green incl. native-windows = c133b9c's test; 8 assets); #37 reply posted
+   (-7221820890, libusb package). Waits: packman83 (Latch test + log). Installed on Linux 2026-11-27 (install.sh, VST3 eebfee77,
+   broker bf7f7e04 = package); user: looks fine in REAPER. Not installed: win11 VM, Mac (Virus on Linux now). Rule: no `sample` on a playing DAW (E609). framepace.h
+   (pacer + dirty rects, tests) committed, not wired in. Mac: 0.8.44 release installed 2026-11-27, Virus on the Mac.
+1. **Quiet issues:** #47 + #45 closed 2026-11-26, #42 closed 2026-11-27 (with the user); #53 reaches 7 days on
+   2026-11-30. #60 (new 2026-11-27, DeepSeeBee, TI2, macOS, 0.8.43: no connection, works only without the hub, no
+   vendor name in System Information, renamed "patches.mid" -> bank sync -> "no Virus"): asked for log + System Information
+   product name + file path (-7217882172). E606: macOS audio matched by name only; round-0.8.45 fallback by model UID
+   133E:0815 (not compiled on a Mac, format unchecked). RC for him only after his log, with the user's go. #51: remove VTI_NATIVE_MARGIN, 15-20 min, diag.log.
+2. **#37 after A+B (code in since rc8, E589), decided as a known limit (E605):** parked, only if users report it with a pre-roll: a burst without a Play window (setActive alone, Play again
    without stop, buffer switch, Logic live/not-live switch) waits 0.5 s (design C: ungate the pre-shift, needs a
    per-block trace first); our own 6 ms process() stall at block 64 during the bank sync. Not heard in Logic yet.
 3. Release text (build.yml + infopage.h): written for marker, pre-shift, first Play, #51, library saves, xrun crossfade,

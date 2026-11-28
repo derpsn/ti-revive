@@ -7,6 +7,8 @@
 # It also parks drivers that would block the Virus, and offers to remove the original Access plug-ins (Intel-only,
 # not used any more since TI Revive 0.8.0).
 # Put the Access .pkg next to this script, or drop it onto the Terminal window when asked.
+# the same Access file setup for the other platforms: src/installer-linux/install.sh,
+# src/installer/tirevive-access.ps1
 set -euo pipefail
 cd "$(dirname "$0")"
 PKG=$(ls -1 Virus\ TI\ Software\ Suite*.pkg 2>/dev/null | head -1 || true)

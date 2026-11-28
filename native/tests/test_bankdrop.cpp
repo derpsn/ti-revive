@@ -469,3 +469,20 @@ TEST(libraryedit_refuses_more_than_128)
     CHECK(LibraryEdit::sort(big).empty());
     CHECK(LibraryEdit::swap(big, {0}, 1).empty());
 }
+
+// review B5: a library entry that is no single dump (a damaged file) is not written into by a swap's renumbering,
+// and the size checks keep address/checksums/name_less inside short buffers
+TEST(bankdrop_short_dumps_left_alone)
+{
+    auto l = library({{0, "Awakening"}, {1, "LibRen"}});
+    const std::vector<uint8_t> junk(200, 0x11);
+    l.resize(4);
+    l[3] = junk;
+    auto s = LibraryEdit::swap(l, {0}, 1);
+    CHECK(s.size() == l.size() && s[3] == junk);
+    std::vector<uint8_t> tiny(9, 0);
+    BankDrop::address(tiny, 2, 5);
+    BankDrop::checksums(tiny);
+    CHECK(tiny == std::vector<uint8_t>(9, 0));
+    CHECK(BankDrop::name_less(tiny, patch("A", 0)) && !BankDrop::name_less(patch("A", 0), tiny)); // no name = ""
+}

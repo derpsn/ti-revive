@@ -4,7 +4,7 @@
 #     the broker) + "Set up Access Virus TI files.command" + "Uninstall TI Revive.command" + README-mac.txt
 # usage: mac-build-release.sh <repo dir> <version> [out dir]
 # needs: Xcode (the plug-in: native/, VST3 SDK submodule; the AudioUnitSDK is fetched by CMake), curl (libusb).
-# 0.8.0: no bridge, Rosetta helper or libVirusUSB any more (scripts/mac-build-bridge.sh builds them for reference).
+# 0.8.0: no bridge, Rosetta helper or libVirusUSB any more (their sources, src/mac, were removed in 0.8.45).
 set -euo pipefail
 REPO="$(cd "${1:?repo dir}" && pwd)"
 VERSION="${2:?version}"

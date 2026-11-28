@@ -9,6 +9,8 @@ if [ -n "$USER_NAME" ] && [ "$USER_NAME" != root ]; then
         launchctl bootout "gui/$USER_ID/$label" 2>/dev/null || true
     done
     rm -f "/Users/$USER_NAME/Library/LaunchAgents/com.tirevive.vtibroker.plist"
+    # the old bundle names are also listed in src/installer-linux/install.sh, src/installer-linux/uninstall.sh,
+    # "src/installer-mac/Uninstall TI Revive.command", native/packaging/windows/native.wxs: change them together
     # test builds of the native plug-in lived in the user's folder under another name (same class id: a DAW would
     # see two copies of "TI Revive"; "TI Revive Virus Control" was its name until 0.8.42)
     for n in "TI Revive" "TI Revive Virus Control"; do
@@ -81,7 +83,15 @@ PLIST
     rm -f /tmp/tirevive-vtibroker.log
     OPT="/Users/$USER_NAME/Library/Application Support/virus-ti-native"
     mkdir -p "$OPT" && touch "$OPT/mac-usb-audio.on" && chown -R "$USER_NAME" "$OPT"
-    launchctl bootstrap system "$SVC_PLIST"
+    # launchd can refuse right after the bootout above (the old service still going away): one retry, then the
+    # install fails, since without the service the plug-in shows "not connected"
+    if ! launchctl bootstrap system "$SVC_PLIST"; then
+        sleep 2
+        launchctl bootstrap system "$SVC_PLIST" || {
+            echo "TI Revive (libusb): launchd could not start the service $SVC. Restart the Mac and run this installer again." >&2
+            exit 1
+        }
+    fi
 elif [ -f "$SVC_PLIST" ]; then
     launchctl bootout "system/$SVC" 2>/dev/null || true # gives the Virus back to Apple's driver (or: replug it)
     rm -f "$SVC_PLIST"

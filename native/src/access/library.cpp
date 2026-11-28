@@ -18,11 +18,7 @@ namespace {
 // the extension in lower case (ASCII letters only: tolower on a UTF-8 byte would be undefined)
 std::string lower_ext(const fs::path &p)
 {
-    std::string ext = u8str(p.extension());
-    for (auto &ch : ext)
-        if (ch >= 'A' && ch <= 'Z')
-            ch = (char)(ch - 'A' + 'a');
-    return ext;
+    return ascii_lower(u8str(p.extension()));
 }
 } // namespace
 
@@ -36,10 +32,9 @@ std::string skip_summary(const PatchLibrary &lib)
 
 bool load_library_file(const std::string &path, PatchLibrary &lib, const std::vector<uint8_t> &page_b)
 {
-    std::ifstream f(u8path(path), std::ios::binary);
-    if (!f)
+    std::vector<uint8_t> d;
+    if (!u8read(path, d, (size_t)64 << 20)) // a bank is ~70 KB; a .syx of 128 x 524 bytes far less than the cap
         return false;
-    std::vector<uint8_t> d((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     lib.path = path;
     lib.dumps.clear();
     lib.skipped = 0;
@@ -299,20 +294,7 @@ bool save_library(const PatchLibrary &lib, std::string &error)
     f.insert(f.end(), trk.begin(), trk.end());
     if (lower_ext(u8path(lib.path)) == ".syx")
         f = std::move(syx);
-    const fs::path tmp = u8path(lib.path + ".tmp");
-    std::ofstream o(tmp, std::ios::binary);
-    o.write((const char *)f.data(), (std::streamsize)f.size());
-    o.close(); // checked after the flush: a full disk fails only here
-    std::error_code ec;
-    if (o)
-        fs::rename(tmp, u8path(lib.path), ec);
-    if (!o || ec) {
-        error = !o ? "cannot write " + lib.path + ".tmp" : ec.message();
-        std::error_code rm;
-        fs::remove(tmp, rm);
-        return false;
-    }
-    return true;
+    return u8write_atomic(lib.path, f, &error);
 }
 
 std::string xdg_documents_dir(const std::string &home, const std::string &user_dirs)

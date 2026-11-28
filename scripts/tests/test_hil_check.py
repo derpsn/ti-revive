@@ -1,5 +1,6 @@
 """Tests for scripts/hil_check.py (pass/fail rules of the automated hardware run scripts/hil.sh)."""
 import os
+import shutil
 import sys
 import unittest
 
@@ -118,7 +119,7 @@ class Offline(unittest.TestCase):
         self.assertFalse(all(ok for _, ok, _ in hil_check.offline_verdicts("wrote x.wav\n")))
 
 
-def write_wav(path, onsets, seconds, rate=44100):
+def write_wav(path, onsets, seconds, rate=44100, amp=16000):
     """16-bit stereo: a 100 ms 440 Hz burst at each onset (what nativehost records of C4 on part 1)"""
     import math
     import struct
@@ -127,7 +128,7 @@ def write_wav(path, onsets, seconds, rate=44100):
     for t in onsets:
         s = int(t * rate)
         for i in range(s, min(n, s + rate // 10)):
-            x[i] = int(16000 * math.sin(2 * math.pi * 440 * (i - s) / rate))
+            x[i] = int(amp * math.sin(2 * math.pi * 440 * (i - s) / rate))
     data = b"".join(struct.pack("<hh", v, v) for v in x)
     with open(path, "wb") as f:
         f.write(b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " +
@@ -141,9 +142,9 @@ class Folder(unittest.TestCase):
         import tempfile
         self.dir = tempfile.mkdtemp()
 
-    def item(self, name, seconds, onsets, out=""):
+    def item(self, name, seconds, onsets, out="", amp=16000):
         p = os.path.join(self.dir, name)
-        write_wav(p + ".wav", onsets, seconds)
+        write_wav(p + ".wav", onsets, seconds, amp=amp)
         with open(p + ".err", "w") as f:
             f.write(LOG_OK)
         with open(p + ".out", "w") as f:
@@ -177,6 +178,15 @@ class Folder(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("H3: FAIL", lines)
 
+    def test_quiet_recording_fails_the_level_check(self):  # audit 2026-11-28 #9: the grid alone is relative
+        self.clean_folder()
+        self.item("H1", 20, [6.05 + k for k in range(14)], amp=200)  # -44 dBFS: noise or a muted part, not the Virus
+        ok, lines = hil_check.grade_folder(self.dir)
+        self.assertFalse(ok)
+        self.assertTrue(any(line.startswith("  FAIL  level: peak above") for line in lines), "\n".join(lines))
+        self.assertIn("H1: FAIL", lines)
+        self.assertIn("H2-1: pass", lines)
+
     def test_runners_play_the_items_the_grader_expects(self):
         # the Windows and Mac runners name each item with its length; a changed length there must change ITEMS too
         here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -186,6 +196,48 @@ class Folder(unittest.TestCase):
             for name, item in hil_check.ITEMS.items():
                 self.assertRegex(text, r"(?i)(run|start)_?item\s+['\"]?%s['\"]?\s+%d\b" % (name, item["seconds"]),
                                  "%s: %s %d s" % (runner, name, item["seconds"]))
+
+    def test_runners_without_python_say_not_graded(self):  # audit 2026-11-28 #3: never "nothing failed" ungraded
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        for runner, branch in (("hil-win.ps1", r"\} else \{\s*\n(.*\n){0,3}?.*NOT GRADED.*\n(.*\n){0,3}?\s*exit 2"),
+                               ("hil-mac.command", r"\nelse\s*\n(.*\n){0,3}?.*NOT GRADED.*\n(.*\n){0,3}?\s*finish 2")):
+            with open(os.path.join(here, runner), encoding="utf-8") as f:
+                self.assertRegex(f.read(), branch, runner)
+
+
+@unittest.skipIf(sys.platform != "linux" or not shutil.which("pgrep"), "hil.sh runs on Linux")
+class HilShBusy(unittest.TestCase):
+    """hil.sh refuses to start while the Control Center owns the broker (audit 2026-11-28 #11)"""
+
+    def pattern(self):
+        import re
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "hil.sh"), encoding="utf-8") as f:
+            return re.search(r"^cc_pattern='([^']+)'", f.read(), re.M).group(1)
+
+    def test_control_center_names_are_seen(self):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            for name in ("TIReviveControlCenter", "tirevive-control-center", "tirevive-cc"):
+                # a stand-in: Python under the Control Center's name (argv[0]; a copied multi-call sleep would refuse)
+                p = subprocess.Popen([os.path.join(d, name), "-c", "import time; time.sleep(30)"],
+                                     executable=sys.executable)
+                try:
+                    r = subprocess.run(["pgrep", "-f", self.pattern()], capture_output=True, text=True)
+                    self.assertIn(str(p.pid), r.stdout.split(), name)
+                finally:
+                    p.kill()
+                    p.wait()
+
+    def test_a_path_in_an_argument_is_not_the_control_center(self):
+        import subprocess
+        p = subprocess.Popen(["sleep", "30", "build-native/ccapp/TIReviveControlCenter"])
+        try:
+            r = subprocess.run(["pgrep", "-f", self.pattern()], capture_output=True, text=True)
+            self.assertNotIn(str(p.pid), r.stdout.split())
+        finally:
+            p.kill()
+            p.wait()
 
 
 if __name__ == "__main__":

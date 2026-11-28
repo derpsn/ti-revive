@@ -2,10 +2,13 @@
 #include "firmware.h"
 #include "model/bankdrop.h"
 #include "model/utf8.h"
+#include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <map>
+#include <string>
+#include <vector>
 
 namespace vti {
 
@@ -39,8 +42,11 @@ std::vector<std::vector<std::vector<uint8_t>>> load_rom_banks(const std::string 
                                                                std::string &error)
 {
     std::vector<std::vector<std::vector<uint8_t>>> banks;
-    std::ifstream f(u8path(path), std::ios::binary);
-    std::vector<uint8_t> d((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    std::vector<uint8_t> d;
+    if (!u8read(path, d, (size_t)64 << 20)) { // the real package is ~10 MB
+        error = path + ": cannot read";
+        return banks;
+    }
     auto top = chunks(d.data(), d.size());
     if (top.empty() || top[0].tag != "TABL") {
         error = path + ": not a Virus firmware package";
@@ -60,7 +66,7 @@ std::vector<std::vector<std::vector<uint8_t>>> load_rom_banks(const std::string 
     }
     const char *want = model == VirusModel::TI2 ? "vti_2.bin" : model == VirusModel::Snow ? "vti_snow.bin" : "vti.bin";
     const Chunk *img = nullptr;
-    for (size_t i = 0; i < names.size() && i + 1 < top.size(); i++)
+    for (size_t i = 0; !img && i < names.size() && i + 1 < top.size(); i++) // the first match wins
         if (names[i].size() >= strlen(want) && names[i].compare(names[i].size() - strlen(want), strlen(want), want) == 0)
             img = &top[i + 1];
     if (!img) {

@@ -16,6 +16,7 @@
 #include "brokerinfo.h"
 #include "flashinfo.h"
 #include "ctrlguard.h"
+#include "outfill.h"
 #include "sxhold.h"
 #include "owner.h"
 #include "trafficring.h"
@@ -37,7 +38,7 @@
 #include <string.h>
 
 #define MAX_CLIENTS 16
-#define IDLE_EXIT_MS 30000 // exit when no client has been connected for this long (started on demand, vticore_pipe.c)
+#define IDLE_EXIT_MS 30000 // exit when no client has been connected for this long (started on demand by its clients)
 
 static HANDLE g_log = INVALID_HANDLE_VALUE;
 static int g_verbose;
@@ -160,45 +161,19 @@ static void audio_in(const int16_t *pcm, uint32_t frames, void *user)
     LeaveCriticalSection(&g_cs_audio);
 }
 
-// OUT packet source (vua_set_out): frames the writing client (ASIO driver) appended to the output ring. Playback
-// starts once OUT_PREFILL frames are buffered (so one late delivery does not underrun); if the client got ahead by
-// more than OUT_MAX (e.g. after a stall), the oldest frames are dropped to bound the latency. Silence otherwise.
-#define OUT_PREFILL 512
-#define OUT_MAX 2048
-static int g_out_playing;
-static uint64_t g_out_underruns, g_out_dropped, g_out_frames;
+// OUT packet source (vua_set_out): the ASIO driver's frames from the output ring (outfill.h)
+static vti_outfill g_out;
 
 static void audio_out(int16_t *dst, uint32_t frames, void *user)
 {
     (void)user;
     int64_t w = *(volatile int64_t *)&g_shm->out_write, r = g_shm->out_read;
-    int64_t avail = w - r;
-    if (avail < 0 || avail > VTI_AUDIO_RING) { // writer restarted or far ahead: resynchronise
-        r = w;
-        avail = 0;
-        g_out_playing = 0;
-    }
-    if (!g_out_playing && avail >= OUT_PREFILL)
-        g_out_playing = 1;
-    if (g_out_playing && avail > OUT_MAX) {
-        g_out_dropped += (uint64_t)(avail - OUT_PREFILL);
-        r = w - OUT_PREFILL;
-        avail = OUT_PREFILL;
-    }
-    uint32_t n = 0;
-    if (g_out_playing) {
-        n = avail < frames ? (uint32_t)avail : frames;
-        for (uint32_t i = 0; i < n; i++)
-            memcpy(dst + i * VTI_AUDIO_OUT_CH, &g_shm->out[((r + i) & (VTI_AUDIO_RING - 1)) * VTI_AUDIO_OUT_CH],
-                   VTI_AUDIO_OUT_CH * sizeof(int16_t));
-        if (n < frames) { // ran dry: refill before playing again
-            g_out_underruns++;
-            g_out_playing = 0;
-        }
-    }
+    const uint32_t n = vti_outfill_take(&g_out, w, &r, frames);
+    for (uint32_t i = 0; i < n; i++)
+        memcpy(dst + i * VTI_AUDIO_OUT_CH, &g_shm->out[((r + i) & (VTI_AUDIO_RING - 1)) * VTI_AUDIO_OUT_CH],
+               VTI_AUDIO_OUT_CH * sizeof(int16_t));
     memset(dst + n * VTI_AUDIO_OUT_CH, 0, (frames - n) * VTI_AUDIO_OUT_CH * sizeof(int16_t));
     g_shm->out_read = r + n;
-    g_out_frames += n;
 }
 
 static vti_rate_guard g_rate_guard; // at most one rate switch per second (ratesw.h, rule 2); g_cs_audio_ctl
@@ -218,15 +193,15 @@ static DWORD WINAPI audio_thread(LPVOID unused)
 {
     (void)unused;
     g_shm->out_read = g_shm->out_write; // nothing stale from a previous stream
-    g_out_playing = 0;
+    g_out.playing = 0;
     vua_set_out(audio_out, NULL);
     vua_set_slot(vti_slot);
     int r = vua_run(&g_audio_running, audio_in, NULL, blog);
     g_shm->streaming = 0;
-    if (g_out_frames)
-        blog("audio out: %llu frames played, %llu underruns, %llu frames dropped", (unsigned long long)g_out_frames,
-             (unsigned long long)g_out_underruns, (unsigned long long)g_out_dropped);
-    g_out_frames = g_out_underruns = g_out_dropped = 0;
+    if (g_out.frames)
+        blog("audio out: %llu frames played, %llu underruns, %llu frames dropped", (unsigned long long)g_out.frames,
+             (unsigned long long)g_out.underruns, (unsigned long long)g_out.dropped);
+    g_out.frames = g_out.underruns = g_out.dropped = 0;
     return (DWORD)r;
 }
 
@@ -365,9 +340,7 @@ static int32_t audio_request(client *c, uint32_t on, const char *name, uint32_t 
 // the Virus' identification blocks (VTIMSG_FLASHINFO, flashinfo.h): read once per device open with the original
 // driver's fixed read-only sequence, then cached; the device lock is held per request only (MIDI keeps flowing)
 static unsigned g_dev_gen; // counts device opens: the cache belongs to one
-static uint8_t g_flash[VTI_FLASH_BLOCKS * 16];
-static int g_flash_len, g_flash_busy;
-static unsigned g_flash_gen;
+static vti_flashcache g_flash; // g_cs_dev
 
 static int flash_ctl(void *u, uint8_t rt, uint8_t req, uint16_t val, uint16_t idx, uint8_t *d, uint16_t len)
 {
@@ -382,26 +355,17 @@ static void flash_nap(int ms) { Sleep((DWORD)ms); }
 
 static int flash_info(uint8_t *out)
 {
+    int n;
     EnterCriticalSection(&g_cs_dev);
     unsigned gen = g_dev_gen;
-    int cached = g_dev && g_flash_len > 0 && g_flash_gen == gen, start = g_dev && !cached && !g_flash_busy;
-    if (cached)
-        memcpy(out, g_flash, (size_t)g_flash_len);
-    if (start)
-        g_flash_busy = 1;
-    int n = cached ? g_flash_len : -1;
+    const int start = vti_flash_begin(&g_flash, g_dev != NULL, gen, out, &n);
     LeaveCriticalSection(&g_cs_dev);
     if (!start)
         return n;
     n = vti_flash_info(flash_ctl, flash_nap, &gen, out);
     blog("flash info read (read-only, E026): %d bytes", n);
     EnterCriticalSection(&g_cs_dev);
-    g_flash_busy = 0;
-    if (n > 0 && g_dev_gen == gen) {
-        memcpy(g_flash, out, (size_t)n);
-        g_flash_len = n;
-        g_flash_gen = gen;
-    }
+    vti_flash_end(&g_flash, g_dev_gen, gen, out, n);
     LeaveCriticalSection(&g_cs_dev);
     return n;
 }
@@ -511,14 +475,8 @@ static CRITICAL_SECTION g_cs_pre;
 static void obs_traffic(uint8_t kind, uint8_t ep, const void *a, int alen, const void *b, int blen)
 {
     InterlockedIncrement64(kind == 0 ? &g_cnt_out : kind == 1 ? &g_cnt_in : &g_cnt_ctl);
-    uint8_t hdr[6] = {kind, ep};
-    uint32_t t = (uint32_t)(GetTickCount64() - g_t0);
-    memcpy(hdr + 2, &t, 4);
-    uint8_t body[VTIMSG_MAX];
-    int n = alen < (int)sizeof body ? alen : (int)sizeof body;
-    memcpy(body, a, n);
-    if (blen > 0 && n + blen <= (int)sizeof body)
-        memcpy(body + n, b, blen), n += blen;
+    uint8_t hdr[6], body[VTIMSG_MAX];
+    const int n = vti_trafrec(hdr, body, (int)sizeof body, kind, ep, (uint32_t)(GetTickCount64() - g_t0), a, alen, b, blen);
     EnterCriticalSection(&g_cs_pre);
     vti_trafring_push(&g_pre, hdr, body, n, NULL, 0);
     if (g_obs_count)
@@ -855,7 +813,7 @@ static DWORD WINAPI client_thread(LPVOID arg)
                 break;
             }
             if (h.len >= 1 && vti_write_blocked(&c->sx, buf + 1, h.len - 1)) {
-                blog("refused a write of %d bytes (rule 2: Multi parameter 0-3 of page 0x72 or status F4)", h.len - 1);
+                blog("refused a write of %d bytes (rule 2: not whole packets, Multi parameter 0-3 of page 0x72 or status F4)", h.len - 1);
                 break;
             }
             if (h.len >= 1 && !c->observer && !waits) {
@@ -957,6 +915,9 @@ static DWORD WINAPI client_thread(LPVOID arg)
     LeaveCriticalSection(&g_cs_tx);
     audio_request(c, 0, NULL, 0);
     client *next = NULL;
+    EnterCriticalSection(&g_cs_dev); // for the handover's STATE below (order: g_cs_dev, then g_cs_clients)
+    const uint32_t dev_open = g_dev != NULL;
+    LeaveCriticalSection(&g_cs_dev);
     EnterCriticalSection(&g_cs_clients);
     for (int i = 0; i < MAX_CLIENTS; i++)
         if (g_clients[i] == c)
@@ -966,7 +927,9 @@ static DWORD WINAPI client_thread(LPVOID arg)
         users += g_clients[i] && !g_clients[i]->observer;
     if (g_plugin_owner == c) { // hand the Virus to the next waiting plug-in (another program)
         g_plugin_owner = NULL;
-        next = next_plugin_owner();
+        // its STATE under g_cs_clients: outside it `next` could disconnect and be freed first (review A4)
+        if ((next = next_plugin_owner()) != NULL) // the owner now: it does not wait
+            send_msg(next, VTIMSG_STATE, &dev_open, 4, NULL, 0);
     }
     LeaveCriticalSection(&g_cs_clients);
     if (!c->observer) {
@@ -975,10 +938,8 @@ static DWORD WINAPI client_thread(LPVOID arg)
             vti_link(g_dev, 0);
         LeaveCriticalSection(&g_cs_tx);
     }
-    if (next) {
+    if (next) // only logged: `next` may be gone by now
         blog("the next program's plug-in owns the Virus now");
-        send_state(next);
-    }
     c->alive = 0;
     SetEvent(c->q_event);
     WaitForSingleObject(c->sender, INFINITE); // removed from g_clients above: no new messages can arrive

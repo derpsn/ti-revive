@@ -20,17 +20,40 @@ std::string plugin_dir()
     return c.empty() ? c : u8str(u8path(c).parent_path());
 }
 
-std::string plugin_log_path() { return u8str(u8path(plugin_dir()) / "diag.log"); }
+std::string plugin_file(const std::string &name)
+{
+    const std::string d = plugin_dir();
+    return d.empty() ? d : u8str(u8path(d) / u8path(name));
+}
+
+std::string plugin_log_path() { return plugin_file("diag.log"); }
+
+std::string local_time(const char *fmt, time_t t, const char *fallback)
+{
+    struct tm tm {};
+#ifdef _WIN32
+    const bool ok = localtime_s(&tm, &t) == 0;
+#else
+    const bool ok = localtime_r(&t, &tm) != nullptr;
+#endif
+    char buf[64];
+    return ok && strftime(buf, sizeof buf, fmt, &tm) > 0 ? std::string(buf) : std::string(fallback);
+}
 
 static bool flag(const char *file)
 {
     std::error_code ec;
-    return fs::exists(u8path(plugin_dir()) / file, ec);
+    const std::string f = plugin_file(file);
+    return !f.empty() && fs::exists(u8path(f), ec);
 }
 
 static bool set_flag(const char *file, bool on, std::string &error)
 {
-    fs::path f = u8path(plugin_dir()) / file;
+    if (plugin_dir().empty()) { // not the current folder instead (review B24)
+        error = "no plug-in folder (HOME / LOCALAPPDATA not set)";
+        return false;
+    }
+    fs::path f = u8path(plugin_file(file));
     std::error_code ec;
     if (on) {
         fs::create_directories(f.parent_path(), ec);
@@ -39,7 +62,7 @@ static bool set_flag(const char *file, bool on, std::string &error)
             error = "cannot create " + u8str(f);
             return false;
         }
-    } else if (fs::exists(f, ec) && !fs::remove(f, ec)) {
+    } else if (!fs::remove(f, ec) && ec) { // false without an error: it was not there (review B26: ec decides)
         error = "cannot remove " + u8str(f) + ": " + ec.message();
         return false;
     }
@@ -256,9 +279,7 @@ std::string anonymize(const std::string &text)
 bool collect_logs(const std::string &out_path, const std::string &version, std::string &error)
 {
     std::string t = "TI Revive logs\n==============\n";
-    char stamp[32];
-    time_t now = time(nullptr);
-    strftime(stamp, sizeof stamp, "%Y-%m-%d %H:%M:%S", localtime(&now));
+    const std::string stamp = local_time("%Y-%m-%d %H:%M:%S", time(nullptr));
 #if defined(_WIN32)
     const char *os = "Windows";
 #elif defined(__APPLE__)

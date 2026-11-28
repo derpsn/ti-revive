@@ -9,6 +9,7 @@
 #include <cmath>
 #include <map>
 #include <memory>
+#include <stdexcept>
 using namespace vti;
 using Bytes = std::vector<uint8_t>;
 
@@ -224,6 +225,11 @@ TEST(editor_layout_load)
     CHECK(!bad.load(Bytes{'<', 'x'}, err) && !err.empty());
     const char *empty = "<Editor><Frame width=\"10\" height=\"10\"/></Editor>";
     CHECK(!bad.load(Bytes(empty, empty + strlen(empty)), err));
+    // review B18: a second load starts empty (the elements were appended to the first load's)
+    EditorLayout twice;
+    CHECK(twice.load(Bytes(LAYOUT, LAYOUT + strlen(LAYOUT)), err) && twice.load(Bytes(LAYOUT, LAYOUT + strlen(LAYOUT)), err));
+    CHECK(twice.elements.size() == 2 && twice.bitmaps.size() == g.layout.bitmaps.size());
+    CHECK(!twice.load(Bytes(empty, empty + strlen(empty)), err) && twice.elements.empty() && twice.bitmaps.empty());
 }
 
 TEST(editor_render_controls)
@@ -511,6 +517,32 @@ TEST(editor_dependencies)
     CHECK(deps.rects.count("Filter 1/Resonance")); // read while drawing the filter displays
     // the values function is the plain one again after the render
     CHECK(g.r->values("Osc/Shape", 0) == 64);
+}
+
+// review B16: an exception out of a render with deps (here from the values function) leaves `values` the plain
+// function, not the recording one that points at the gone render's stack
+TEST(editor_dependencies_restored_after_a_throw)
+{
+    Rig g;
+    ValueFn plain = g.r->values;
+    g.r->values = [&](const std::string &path, int pt) {
+        if (path == "Osc/Shape")
+            throw std::runtime_error("read failed");
+        return plain(path, pt);
+    };
+    EditorRenderer::Deps deps;
+    g.r->deps = &deps;
+    bool threw = false;
+    try {
+        g.r->render(g.canvas);
+    } catch (const std::runtime_error &) {
+        threw = true;
+    }
+    g.r->deps = nullptr;
+    CHECK(threw);
+    const size_t before = deps.cond.size() + deps.rects.size();
+    CHECK(g.r->values("Osc/Mode", 0) == 0);
+    CHECK_EQ(deps.cond.size() + deps.rects.size(), before); // no longer recording
 }
 
 TEST(editor_hit_and_rects)
@@ -1206,4 +1238,90 @@ TEST(editor_snow_midi_indicator_meter)
     CHECK(m[1] == (std::array<int, 5>{1, 150, 20, 121, 6}));
     auto ti = g.r->meter_rects();
     CHECK(ti.size() == 1 && ti[0] == (std::array<int, 5>{2, 5, 35, 50, 6}));
+}
+
+// review B19: one test for the four filter response displays (was spelled out at six places)
+TEST(editor_is_filter_display)
+{
+    Element e;
+    for (const char *t : {"LP4Response", "HP4Response", "BP4Response", "BS4Response"}) {
+        e.type = t;
+        CHECK(EditorRenderer::is_filter_display(e));
+    }
+    for (const char *t : {"ADSTREnvelope", "Response", "LP4Responses", "VelocityResp"}) {
+        e.type = t;
+        CHECK(!EditorRenderer::is_filter_display(e));
+    }
+}
+
+// review B20: the bars are as wide as the cells the hit test uses (e.w / 32), not a fixed 20 px: in a 320 px
+// editor a step followed by one that is on ends inside its 10 px cell
+TEST(editor_arp_draw_matches_hit_cells)
+{
+    Rig g;
+    static const char *narrow = R"(<?xml version="1.0"?>
+<Editor><Frame width="400" height="200"><Container Part="0"><Size left="0" top="0" width="400" height="200"/>
+ <ArpEdit Parameter="Arpeggiator User Pattern/Step 1 Bitfield"><ForeColor red="0" green="0" blue="200"/><Size left="0" top="0" width="320" height="130"/></ArpEdit>
+</Container></Frame></Editor>)";
+    EditorLayout lay;
+    std::string err;
+    CHECK(lay.load(Bytes(narrow, narrow + strlen(narrow)), err));
+    EditorRenderer r(lay, *g.cond, g.dev, g.ed);
+    const std::string s = "Arpeggiator User Pattern/Step ";
+    g.vals[{s + "1 Bitfield", 0}] = 1, g.vals[{s + "1 Velocity", 0}] = 50, g.vals[{s + "1 Length", 0}] = 127;
+    g.vals[{s + "2 Bitfield", 0}] = 1, g.vals[{s + "2 Velocity", 0}] = 50, g.vals[{s + "2 Length", 0}] = 127;
+    r.values = g.r->values;
+    RecCanvas c;
+    c.imgs = g.canvas.imgs;
+    r.render(c);
+    int cx = 0, bottom = 0;
+    EditorRenderer::arp_step_geometry(lay.elements[0].children[0], 0, 0, 0, cx, bottom);
+    std::vector<int> sides; // the bars' left and right frame lines (1 px wide, vel + 1 high)
+    for (auto &f : c.fills)
+        if (f.c.r == 192 && f.w == 1 && f.h == 51)
+            sides.push_back(f.x);
+    std::sort(sides.begin(), sides.end());
+    // cells of 10 px: step 1 r = min(1 x 10 - 1, 18) = 9, ending where step 2's frame starts (cx + 10 - 1); step 2
+    // spans the 31 cells to the end, r = min(31 x 10 - 1, 18 x 31) = 309: the right edge of the element, not past it
+    CHECK((sides == std::vector<int>{cx - 1, cx + 9, cx + 9, cx + 10 + 309}));
+}
+
+// review B22: editor.xml nested deeper than any real one (8 levels) is cut at 64 levels, not read (and later drawn)
+// recursively until the stack runs out
+TEST(editor_layout_nesting_limited)
+{
+    std::string xml = "<Editor><Frame width=\"10\" height=\"10\">";
+    for (int i = 0; i < 100000; i++)
+        xml += "<Container>";
+    for (int i = 0; i < 100000; i++)
+        xml += "</Container>";
+    xml += "</Frame></Editor>";
+    EditorLayout lay;
+    std::string err;
+    CHECK(lay.load(Bytes(xml.begin(), xml.end()), err));
+    int depth = 0;
+    for (const std::vector<Element> *n = &lay.elements; !n->empty(); n = &n->front().children)
+        depth++;
+    CHECK(depth <= 64);
+}
+
+// review B22: an oscillator display 1 or 2 px wide divided by zero (w - 1) and drew at NaN-derived rows
+TEST(editor_osc_classic_narrow)
+{
+    Rig g;
+    for (int w : {0, 1, 2, 3}) {
+        const std::string xml = R"(<?xml version="1.0"?><Editor><Frame width="100" height="100"><Container Part="0">
+ <Size left="0" top="0" width="100" height="100"/>
+ <OscClassicShape Parameter="Oscillator 1/Pulsewidth"><Size left="10" top="10" width=")" + std::to_string(w) +
+                                R"(" height="20"/></OscClassicShape></Container></Frame></Editor>)";
+        EditorLayout lay;
+        std::string err;
+        CHECK(lay.load(Bytes(xml.begin(), xml.end()), err));
+        EditorRenderer r(lay, *g.cond, g.dev, g.ed);
+        r.values = g.r->values;
+        RecCanvas c;
+        r.render(c);
+        for (auto &f : c.fills)
+            CHECK(f.x >= 10 && f.x <= 10 + w && f.y >= 10 && f.y <= 30);
+    }
 }

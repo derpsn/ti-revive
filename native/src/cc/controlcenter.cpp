@@ -1,5 +1,6 @@
 // controlcenter.cpp - see controlcenter.h.
 #include "controlcenter.h"
+#include "diag.h"
 #include "model/utf8.h"
 #include "../access/library.h"
 #include "../device/usbmidi.h"
@@ -80,10 +81,7 @@ std::string cache_dir()
 
 static std::string now_stamp()
 {
-    char stamp[32];
-    time_t t = time(nullptr);
-    strftime(stamp, sizeof stamp, "%Y-%m-%d %H%M", localtime(&t));
-    return stamp;
+    return local_time("%Y-%m-%d %H%M", time(nullptr));
 }
 
 std::string default_backup_dir()
@@ -348,8 +346,13 @@ bool restore_ram(Broker &broker, int bank, const std::vector<Dump> &backup,
             break;
         }
         if (rep.confirmed) { // R11-7: counted only once the broker says the whole dump went out, bounded
-            for (int t = 0; t < 2500 && !broker.written(end); t++)
+            // CANCEL ends the wait too (review B27); the dump itself is never cut, it went out whole above
+            for (int t = 0; t < 2500 && !broker.written(end) && !(stop && stop->load()); t++)
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            if (!broker.written(end) && stop && stop->load()) {
+                error = "cancelled"; // as at the top of the loop; this program went out but is not counted
+                break;
+            }
             if (!broker.written(end)) {
                 error = where + ": the TI Revive service did not report the write within 5 s";
                 break;
@@ -389,21 +392,10 @@ bool restore_ram(Broker &broker, int bank, const std::vector<Dump> &backup,
 
 bool write_syx(const std::vector<Dump> &dumps, const std::string &path, std::string &error)
 {
-    const fs::path tmp = u8path(path + ".tmp");
-    std::ofstream o(tmp, std::ios::binary);
+    std::vector<uint8_t> all;
     for (auto &d : dumps)
-        o.write((const char *)d.data(), (std::streamsize)d.size());
-    o.close(); // checked after the flush: a full disk fails only here
-    std::error_code ec;
-    if (o)
-        fs::rename(tmp, u8path(path), ec);
-    if (!o || ec) {
-        error = !o ? "cannot write " + path + ".tmp" : ec.message();
-        std::error_code rm;
-        fs::remove(tmp, rm);
-        return false;
-    }
-    return true;
+        all.insert(all.end(), d.begin(), d.end());
+    return u8write_atomic(path, all, &error);
 }
 
 } // namespace vti::cc

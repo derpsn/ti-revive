@@ -82,7 +82,9 @@ if ($py) {
     $r | ForEach-Object { Say $_ }
     if ($LASTEXITCODE -ne 0) { $script:fails++ }
 } else {
-    Say "no Python here: send the folder $Out to be graded"
+    # ungraded is not a pass: a silent Virus would otherwise read as "nothing failed"
+    Say "NOT GRADED: no Python here, $($script:fails) step(s) failed while playing; send the folder $Out to be graded"
+    exit 2
 }
 Say "$(if ($script:fails -eq 0) { 'done, nothing failed' } else { "$($script:fails) step(s) failed" }) - results in $Out"
 exit ([int]($script:fails -gt 0))

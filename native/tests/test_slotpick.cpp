@@ -133,3 +133,16 @@ TEST(slotpick_an_unplayed_owner_yields_to_a_played_waiting_instance)
     CHECK(!vti::slot_yield(-1, -1));                   // nobody else plays (a scan, a project still loading)
     CHECK(!vti::slot_yield(-1, vti::PLAYED_MS + 1));   // the waiting one is not played any more either
 }
+
+// #60: on macOS the Virus' audio device was found by its name alone; a Mac that could not read the Virus' USB name
+// (behind a hub) gives it another one, so the model UID's USB ids (product:VID:PID) count too
+TEST(core_audio_is_virus_by_name_or_usb_ids)
+{
+    CHECK(vti::core_audio_is_virus("Virus TI", ""));
+    CHECK(vti::core_audio_is_virus("USB Audio Device", "USB Audio Device:133E:0815"));
+    CHECK(vti::core_audio_is_virus("", "Virus TI:133e:0815"));    // hex case as given
+    CHECK(!vti::core_audio_is_virus("Scarlett 2i2", "Scarlett 2i2:1235:8210"));
+    CHECK(!vti::core_audio_is_virus("Other", "Other:133E:0816")); // another Access product id
+    CHECK(!vti::core_audio_is_virus("Other", "Other:133E:08150")); // only the whole id
+    CHECK(!vti::core_audio_is_virus("", ""));
+}

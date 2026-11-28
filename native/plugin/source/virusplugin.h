@@ -89,8 +89,8 @@
 
 namespace vti {
 
-// Original class ids (formats.md). The development build uses its own id (byte 15 XOR 0xA5) so it can sit next to
-// the original; VTI_NATIVE_DROPIN=ON builds with the original id (loads projects saved with the original).
+// Class ids (formats.md). Ours is the 0.7.x plug-in's (Windows/Linux: the original's last byte XOR 0x5A; macOS the
+// bridge's), so it can sit next to the original, which keeps its own id.
 extern const Steinberg::FUID kVirusTIClassId;
 extern const Steinberg::FUID kOriginalClassId; // the Access plug-in's id: a second class for its projects (E221)
 extern const Steinberg::FUID kSnowClassId;     // the Snow plug-in: the Snow's 4-part editor and files (E361)
@@ -435,6 +435,7 @@ public:
 
     Steinberg::tresult PLUGIN_API initialize(Steinberg::FUnknown *context) override;
     Steinberg::tresult PLUGIN_API terminate() override;
+    ~VirusPlugin() override;
     Steinberg::tresult PLUGIN_API setActive(Steinberg::TBool state) override;
     Steinberg::tresult PLUGIN_API setupProcessing(Steinberg::Vst::ProcessSetup &setup) override;
     // the Sidechain input: which buses the host activates (some hosts then pass only those), stereo only like the
@@ -669,6 +670,8 @@ public:
         std::atomic<long> full_draws{0}, part_draws{0}, draw_us{0}, dirty_ticks{0}, process_calls{0};
         std::atomic<long> process_max_us{0}, process_over{0}; // over = longer than the block's real time
         std::atomic<long> block_max{0}; // largest block the host passed (E187: crackling at large buffers)
+        // #37 E607: the longest single repaint, and repaint requests the frame pacer held back (framepace.h)
+        std::atomic<long> draw_max_us{0}, paced{0};
     } diag;
     std::atomic<int64_t> diag_next_ms_{0}; // diag_report: when the next line is due
     bool diag_enabled();
@@ -731,6 +734,7 @@ public:
     REFCOUNT_METHODS(SingleComponentEffect)
 
 private:
+    void shutdown(); // terminate() and the destructor: threads, timers and the worker stop (idempotent)
     struct Mapped {
         std::string path;
         int part = 0; // 0-based
@@ -897,7 +901,7 @@ private:
     UnreadState unread_; // under state_mu_: a project setState could not parse, saved back unchanged (R8-5)
     std::mutex state_mu_;
     std::unique_ptr<DeviceOut> out_;
-    int block_ = 512;
+    std::atomic<int> block_{512}; // setupProcessing writes it, the UI and the worker read it (review B32)
     // R5 timing with the sync marker: an event at timeline position t sounds at ring frame t + lead() (S behind the
     // newest frame + A to reach the Virus in time), and process() reads the ring latency_frames() behind that, so the
     // host gets it exactly latency_frames() late in every session (reported as the plug-in latency)
@@ -935,7 +939,7 @@ public:
         return l;
     }
 private:
-    double rate_ = 44100;
+    std::atomic<double> rate_{44100}; // as block_
     std::string host_name_; // IHostApplication::getName; in an Audio Unit only "VST3-AU Wrapper"
     // the Virus timeline (docs/protocol.md "timing"): frames of the synth, stamped on every clock tick and event
     int64_t tl_ = 0;
