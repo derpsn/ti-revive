@@ -2429,6 +2429,7 @@ tresult PLUGIN_API VirusPlugin::process(ProcessData &data)
             ParamValue v;
             if (!q || q->getPointCount() <= 0 || q->getPoint(q->getPointCount() - 1, offset, v) != kResultOk)
                 continue;
+            v = v >= 0.0 ? std::min(v, 1.0) : 0.0; // a host's value outside 0..1 (or NaN): lround(v * 127) overflowed
             ParamID id = q->getParameterId();
             if (id >= MIDI_MAP_BASE) { // a controller, aftertouch or pitch bend of channel (id - base) / 0x1000
                 uint8_t m[3];
