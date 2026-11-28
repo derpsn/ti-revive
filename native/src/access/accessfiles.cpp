@@ -31,6 +31,13 @@ static bool read_file(const std::string &path, std::vector<uint8_t> &out)
     return true;
 }
 
+// the part of a PE section that the file holds (review B11): past its raw data the section is uninitialised, past
+// its virtual size the raw data is padding; a virtual size of 0 means the raw size
+static uint32_t pe_file_size(uint32_t virtual_size, uint32_t raw_size)
+{
+    return virtual_size ? std::min(virtual_size, raw_size) : raw_size;
+}
+
 template <class T> static bool rd(const std::vector<uint8_t> &d, size_t off, T &v)
 {
     if (off + sizeof(T) > d.size())
@@ -69,7 +76,7 @@ bool AccessFiles::load_pe(const std::string &dll, std::string &error, const char
     }
     auto r2o = [&](uint32_t rva) -> size_t {
         for (auto &s : secs)
-            if (rva >= s.va && rva < s.va + std::max(s.vs, s.rs))
+            if (rva >= s.va && rva - s.va < pe_file_size(s.vs, s.rs))
                 return rva - s.va + s.ra;
         return 0;
     };
@@ -255,7 +262,7 @@ bool pe_map(const std::vector<uint8_t> &b, AddressMap &m)
         return false;
     uint64_t base = le64(b, opt + 24);
     for (size_t i = 0, sec = opt + optsz; i < nsec && sec + 40 <= b.size(); i++, sec += 40)
-        m.push_back({base + le32(b, sec + 12), le32(b, sec + 16), le32(b, sec + 20)});
+        m.push_back({base + le32(b, sec + 12), pe_file_size(le32(b, sec + 8), le32(b, sec + 16)), le32(b, sec + 20)});
     return true;
 }
 

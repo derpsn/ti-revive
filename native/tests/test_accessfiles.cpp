@@ -4,6 +4,7 @@
 #ifndef _WIN32
 #include "check.h"
 #include "access/accessfiles.h"
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -385,6 +386,36 @@ TEST(accessfiles_pe_resource_walk_bounded)
     const auto t0 = std::chrono::steady_clock::now();
     CHECK(!AccessFiles::open((td.dir / "loop.dll").string(), err));
     CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(5));
+}
+
+// review B11: a resource whose address lies in a section's uninitialised part (past its raw data, inside its virtual
+// size) has no bytes in the file; read through max(virtual, raw) size it took whatever followed the section
+TEST(accessfiles_pe_resource_outside_raw_data)
+{
+    Bytes d = fake_pe({{"REMOTEDEVICE.XML", REMOTE}});
+    const uint32_t pe = 0x40, sh = pe + 24 + 240, sec_raw = 0x400, sec_va = 0x1000;
+    auto get32 = [&](size_t o) { return (uint32_t)d[o] | d[o + 1] << 8 | d[o + 2] << 16 | (uint32_t)d[o + 3] << 24; };
+    auto put32 = [&](size_t o, uint32_t v) {
+        for (int i = 0; i < 4; i++)
+            d[o + i] = (v >> (8 * i)) & 0xFF;
+    };
+    const uint32_t raw = get32(sh + 16);
+    const size_t content = std::search(d.begin(), d.end(), REMOTE.begin(), REMOTE.end()) - d.begin();
+    const uint32_t rva = sec_va + (uint32_t)(content - sec_raw);
+    size_t entry = 0;
+    for (size_t o = sec_raw; o + 4 <= d.size(); o++)
+        if (get32(o) == rva)
+            entry = o;
+    CHECK(entry != 0);
+    put32(entry, sec_va + raw);         // the data now starts right after the raw data...
+    put32(sh + 8, raw + 0x100);         // ...inside the virtual size
+    d.insert(d.end(), REMOTE.begin(), REMOTE.end()); // and the file holds other bytes there
+    TempDir t("pebss");
+    write(t.dir / "bss.dll", d);
+    Env env;
+    no_installation(env, t.dir / "home");
+    std::string err;
+    CHECK(!AccessFiles::open((t.dir / "bss.dll").string(), err));
 }
 
 TEST(accessfiles_open_nothing)
