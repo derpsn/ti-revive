@@ -6,7 +6,7 @@
 #
 #   python3 scripts/site/build.py [--releases FILE] [--checksums] [--out DIR]
 #
-# --releases: a saved `gh api repos/derpsn/ti-revive/releases?per_page=100` (else gh is called)
+# --releases: a saved `gh api --paginate --slurp repos/derpsn/ti-revive/releases?per_page=100` (else gh is called)
 # --checksums: download the newest release's files once (cached in --cache) and show their SHA-256
 import argparse
 import hashlib
@@ -80,10 +80,13 @@ def md(text):
 def load_releases(path):
     if path:
         with open(path) as f:
-            return json.load(f)
-    out = subprocess.run(["gh", "api", "repos/%s/releases?per_page=100" % REPO], check=True, capture_output=True,
-                         text=True).stdout
-    return json.loads(out)
+            data = json.load(f)
+    else:
+        # --slurp: all pages as one JSON array of pages (a page holds at most 100 releases)
+        data = json.loads(subprocess.run(["gh", "api", "--paginate", "--slurp", "repos/%s/releases?per_page=100" % REPO],
+                                         check=True, capture_output=True, text=True).stdout)
+    # a saved file is either one page (older) or the pages of --slurp
+    return [r for page in data for r in page] if data and isinstance(data[0], list) else data
 
 
 def published(releases):
