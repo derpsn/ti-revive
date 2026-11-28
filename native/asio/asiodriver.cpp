@@ -27,8 +27,11 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <condition_variable>
+#include <new>
 #include <string>
 #include <mutex>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -123,6 +126,7 @@ const int OUT_PREFILL = 512; // the broker starts playing with this much queued 
 // blocks re-synced (muted) almost every time (audit #25)
 const long MAX_BUF = 2048;
 thread_local const void *t_clock; // the Driver whose clock thread this is (a host callback calling stop())
+thread_local bool t_detached;     // this clock thread was detached by stop() and holds a reference (Driver::start)
 const int64_t START_MUTE = 4410; // frames of silence after a (re)start: the first USB block can carry a full-scale spike
 
 void split64(uint64_t v, unsigned long &hi, unsigned long &lo)
@@ -144,10 +148,10 @@ uint64_t now_ns()
 }
 
 // diagnostics: %LOCALAPPDATA%\virus-ti-native\asio.log, only when diag.on exists in that folder (like the plug-in)
-void dlog(const char *fmt, ...)
+static const std::wstring &dlog_path()
 {
     // wide: the user name in %LOCALAPPDATA% can be outside the ANSI code page (#35)
-    static std::wstring path = [] {
+    static const std::wstring path = [] {
         wchar_t base[MAX_PATH];
         DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
         if (!n || n >= MAX_PATH)
@@ -155,6 +159,12 @@ void dlog(const char *fmt, ...)
         std::wstring dir = std::wstring(base) + L"\\virus-ti-native\\";
         return GetFileAttributesW((dir + L"diag.on").c_str()) != INVALID_FILE_ATTRIBUTES ? dir + L"asio.log" : std::wstring();
     }();
+    return path;
+}
+
+void dlog(const char *fmt, ...)
+{
+    const std::wstring &path = dlog_path();
     if (path.empty())
         return;
     static std::mutex m;
@@ -178,7 +188,15 @@ public:
     Driver() { g_objects++; }
     virtual ~Driver()
     {
+        dying_ = true; // stop() below takes no reference any more
         stop();
+        {
+            std::lock_guard<std::mutex> g(log_mu_);
+            log_stop_ = true;
+        }
+        log_cv_.notify_one();
+        if (log_thread_.joinable())
+            log_thread_.join();
         disposeBuffers();
         dlog("%p released", (void *)this);
         if (audio_on_)
@@ -239,6 +257,12 @@ public:
         ev_ = OpenEventA(SYNCHRONIZE, FALSE, vti::Broker::audio_event_name().c_str());
         inited_ = true;
         dlog("%p init: broker open, audio on", (void *)this);
+        if (!dlog_path().empty() && !log_thread_.joinable()) { // the clock thread's lines (rt_log)
+            try {
+                log_thread_ = std::thread([this] { log_writer(); });
+            } catch (const std::system_error &) { // no stats lines then
+            }
+        }
         return 1;
     }
     void getDriverName(char *name) override { snprintf(name, 32, "%s", DRIVER_NAME); }
@@ -255,19 +279,39 @@ public:
         index_ = 0;
         pos_ = -1;
         running_ = true;
-        dlog("%p start: buffer %ld", (void *)this, bufsize_);
+        t_clock == this ? rt_log("%p start: buffer %ld", (void *)this, bufsize_) // inside a callback: no file I/O
+                        : dlog("%p start: buffer %ld", (void *)this, bufsize_);
         const unsigned run = ++run_;
-        thread_ = std::thread([this, run] { clock(run); });
+        try {
+            thread_ = std::thread([this, run] {
+                clock(run);
+                if (t_detached) { // stop() from a callback gave this thread a reference (review A23)
+                    t_detached = false;
+                    Release(); // last: may delete this
+                }
+            });
+        } catch (const std::system_error &) { // review A24: no thread, no clock
+            running_ = false;
+            dlog("%p start: no clock thread", (void *)this);
+            return ASE_HWMalfunction;
+        }
         return ASE_OK;
     }
     ASIOError stop() override
     {
         if (running_)
-            dlog("%p stop", (void *)this);
+            t_clock == this ? rt_log("%p stop", (void *)this) : dlog("%p stop", (void *)this);
         running_ = false;
         run_++;
-        if (thread_.joinable()) // a host that stops us from a callback is on the clock thread: it ends after the callback
-            t_clock == this ? thread_.detach() : thread_.join();
+        if (thread_.joinable() && t_clock != this)
+            thread_.join();
+        else if (thread_.joinable()) { // a host that stops us from a callback is on the clock thread: it ends after the
+            thread_.detach();          // callback and reads members until then, so it keeps us alive (review A23: a
+            if (!dying_) {             // Release in the same callback freed what it read)
+                AddRef();
+                t_detached = true;
+            }
+        }
         return ASE_OK;
     }
     ASIOError getChannels(long *in, long *out) override
@@ -365,10 +409,15 @@ public:
                 disposeBuffers();
                 return ASE_InvalidParameter;
             }
-            mem_.emplace_back(2 * (size_t)size, 0);
-            b.buffers[0] = mem_.back().data();
-            b.buffers[1] = mem_.back().data() + size;
-            bufs_.push_back(b);
+            try {
+                mem_.emplace_back(2 * (size_t)size, 0);
+                b.buffers[0] = mem_.back().data();
+                b.buffers[1] = mem_.back().data() + size;
+                bufs_.push_back(b);
+            } catch (const std::bad_alloc &) { // review A24: an exception must not leave a COM method
+                disposeBuffers();
+                return ASE_NoMemory;
+            }
         }
         bufsize_ = size;
         callbacks_ = cb;
@@ -399,7 +448,7 @@ private:
     vti::Broker broker_;
     vti::AudioIn audio_;
     HANDLE ev_ = nullptr;
-    bool inited_ = false, audio_on_ = false;
+    bool inited_ = false, audio_on_ = false, dying_ = false;
     std::string error_;
     std::vector<ASIOBufferInfo> bufs_;
     std::vector<std::vector<int32_t>> mem_;
@@ -411,6 +460,44 @@ private:
     std::atomic<uint64_t> samples_{0}, stamp_ns_{0};
     long index_ = 0;
     int64_t pos_ = -1; // next ring frame handed to the host
+    // review A25: the clock thread does no file I/O; its log lines go through one slot to log_thread_ (diag.on only),
+    // a line is dropped while the slot is busy
+    std::mutex log_mu_;
+    std::condition_variable log_cv_;
+    char log_line_[256] = {};
+    bool log_full_ = false, log_stop_ = false;
+    std::thread log_thread_;
+
+    void rt_log(const char *fmt, ...)
+    {
+        if (!log_thread_.joinable())
+            return;
+        std::unique_lock<std::mutex> l(log_mu_, std::try_to_lock);
+        if (!l || log_full_)
+            return;
+        va_list a;
+        va_start(a, fmt);
+        vsnprintf(log_line_, sizeof log_line_, fmt, a);
+        va_end(a);
+        log_full_ = true;
+        l.unlock();
+        log_cv_.notify_one();
+    }
+    void log_writer()
+    {
+        std::unique_lock<std::mutex> l(log_mu_);
+        for (;;) {
+            log_cv_.wait(l, [&] { return log_full_ || log_stop_; });
+            if (!log_full_)
+                return;
+            char line[sizeof log_line_];
+            memcpy(line, log_line_, sizeof line);
+            log_full_ = false;
+            l.unlock();
+            dlog("%s", line);
+            l.lock();
+        }
+    }
 
     // the clock: the broker signals every block it received from the Virus (~176 frames / 4 ms); each complete
     // buffer of new frames becomes one buffer switch. Outputs are queued towards the synth right after it.
@@ -440,7 +527,7 @@ private:
                 Sleep(2);
             int now_rate;
             if (audio_.rate_changed(now_rate)) { // the owning plug-in switched the stream: the host must follow
-                dlog("%p the stream switched to %d Hz", (void *)this, now_rate);
+                rt_log("%p the stream switched to %d Hz", (void *)this, now_rate);
                 if (cb->sampleRateDidChange)
                     cb->sampleRateDidChange((double)now_rate);
                 if (live() && can_reset && !reset_sent) {
@@ -501,7 +588,7 @@ private:
                 index_ ^= 1;
             }
             if (now_ns() - st_t0 >= 5000000000ull) {
-                dlog("%p %ld switches, gap max %.1f ms, callback max %.2f ms, out queued %lld..%lld, resyncs %ld",
+                rt_log("%p %ld switches, gap max %.1f ms, callback max %.2f ms, out queued %lld..%lld, resyncs %ld",
                      (void *)this, st_n, gap_max / 1e6, cb_max / 1e6, (long long)(st_n ? q_min : 0),
                      (long long)(st_n ? q_max : 0), st_resync);
                 st_t0 = now_ns(), gap_max = cb_max = 0, q_min = INT64_MAX, q_max = INT64_MIN, st_n = st_resync = 0;
@@ -516,6 +603,8 @@ class Factory : public IClassFactory {
 public:
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **out) override
     {
+        if (!out) // review A24
+            return E_POINTER;
         if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IClassFactory)) {
             *out = static_cast<IClassFactory *>(this);
             return S_OK;
