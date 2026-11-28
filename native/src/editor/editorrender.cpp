@@ -538,6 +538,7 @@ void EditorRenderer::arp_edit(Canvas &c, const Element &e, int x, int y, int par
 {
     const Rgba border{192, 192, 192, 255};
     const double a = 0.38;
+    const int cell = std::max(1, e.w / 32); // as arp_grab and arp_step_geometry (review B20: was a fixed 20)
     for (int i = 0; i < 32; i++) {
         std::string st = "Arpeggiator User Pattern/Step " + std::to_string(i + 1) + " ";
         if (!values(st + "Bitfield", part))
@@ -548,7 +549,7 @@ void EditorRenderer::arp_edit(Canvas &c, const Element &e, int x, int y, int par
         while (i + span < 32 &&
                !values("Arpeggiator User Pattern/Step " + std::to_string(i + span + 1) + " Bitfield", part))
             span++;
-        int r = std::min(span * 20 - 1, (int)std::lround(arp_step_width(values(st + "Length", part)) * (double)span));
+        int r = std::min(span * cell - 1, (int)std::lround(arp_step_width(values(st + "Length", part)) * (double)span));
         int cx, bottom;
         arp_step_geometry(e, x, y, i, cx, bottom);
         int top = bottom - vel;

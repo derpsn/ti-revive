@@ -1253,3 +1253,35 @@ TEST(editor_is_filter_display)
         CHECK(!EditorRenderer::is_filter_display(e));
     }
 }
+
+// review B20: the bars are as wide as the cells the hit test uses (e.w / 32), not a fixed 20 px: in a 320 px
+// editor a step followed by one that is on ends inside its 10 px cell
+TEST(editor_arp_draw_matches_hit_cells)
+{
+    Rig g;
+    static const char *narrow = R"(<?xml version="1.0"?>
+<Editor><Frame width="400" height="200"><Container Part="0"><Size left="0" top="0" width="400" height="200"/>
+ <ArpEdit Parameter="Arpeggiator User Pattern/Step 1 Bitfield"><ForeColor red="0" green="0" blue="200"/><Size left="0" top="0" width="320" height="130"/></ArpEdit>
+</Container></Frame></Editor>)";
+    EditorLayout lay;
+    std::string err;
+    CHECK(lay.load(Bytes(narrow, narrow + strlen(narrow)), err));
+    EditorRenderer r(lay, *g.cond, g.dev, g.ed);
+    const std::string s = "Arpeggiator User Pattern/Step ";
+    g.vals[{s + "1 Bitfield", 0}] = 1, g.vals[{s + "1 Velocity", 0}] = 50, g.vals[{s + "1 Length", 0}] = 127;
+    g.vals[{s + "2 Bitfield", 0}] = 1, g.vals[{s + "2 Velocity", 0}] = 50, g.vals[{s + "2 Length", 0}] = 127;
+    r.values = g.r->values;
+    RecCanvas c;
+    c.imgs = g.canvas.imgs;
+    r.render(c);
+    int cx = 0, bottom = 0;
+    EditorRenderer::arp_step_geometry(lay.elements[0].children[0], 0, 0, 0, cx, bottom);
+    std::vector<int> sides; // the bars' left and right frame lines (1 px wide, vel + 1 high)
+    for (auto &f : c.fills)
+        if (f.c.r == 192 && f.w == 1 && f.h == 51)
+            sides.push_back(f.x);
+    std::sort(sides.begin(), sides.end());
+    // cells of 10 px: step 1 r = min(1 x 10 - 1, 18) = 9, ending where step 2's frame starts (cx + 10 - 1); step 2
+    // spans the 31 cells to the end, r = min(31 x 10 - 1, 18 x 31) = 309: the right edge of the element, not past it
+    CHECK((sides == std::vector<int>{cx - 1, cx + 9, cx + 9, cx + 10 + 309}));
+}
