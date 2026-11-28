@@ -35,7 +35,16 @@ class DriverScript(unittest.TestCase):
         # #31: the Virus took longer than 3 s to come back, and unloading Access' driver with it connected crashed
         self.assertIn("Wait-Until { Test-VirusDetected (Get-VirusDevices) } 15 1", self.text)
         self.assertIn("Show-UserMessage", self.text)
-        self.assertLess(self.text.index("Get-AccessBoundVirus"), self.text.index("pnputil /delete-driver $pkg"))
+        install = self.text[self.text.index("if ($Action -eq 'install')"):]
+        self.assertLess(install.index("Get-AccessBoundVirus"), install.index("pnputil /delete-driver $pkg"))
+
+    def test_an_upgrade_removes_the_earlier_package_after_adding_the_new_one(self):
+        # audit 13: a major upgrade skips the uninstall action, so every version left its package and cert; removed
+        # only once the new package is in (a failed setup keeps the working driver), keeping the new ones
+        install = self.text[self.text.index("if ($Action -eq 'install')"):]
+        self.assertLess(install.index("$earlier = Get-ItemProperty $reg"), install.index("New-SelfSignedCertificate"))
+        self.assertLess(install.index("Set-ItemProperty $reg DriverPackage $pkg"),
+                        install.index("Remove-OurDriver $earlier $pkg $cert.Thumbprint"))
 
     def test_a_failed_driver_add_fails_the_setup(self):
         # audit #15: the MSI action checks the exit code (Return="check"); exit 0 after a failure looked like success.
