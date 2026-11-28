@@ -210,7 +210,7 @@ const char *os_family()
 #endif
 }
 
-std::string update_state_path() { return u8str(u8path(plugin_dir()) / "update.txt"); }
+std::string update_state_path() { return plugin_file("update.txt"); }
 
 UpdateState read_update_state()
 {
@@ -223,6 +223,8 @@ UpdateState read_update_state()
 
 bool write_update_state(const UpdateState &s)
 {
+    if (plugin_dir().empty())
+        return false;
     std::error_code ec;
     std::filesystem::create_directories(u8path(plugin_dir()), ec);
     const std::string text = format_update_state(s);

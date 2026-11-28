@@ -20,17 +20,28 @@ std::string plugin_dir()
     return c.empty() ? c : u8str(u8path(c).parent_path());
 }
 
-std::string plugin_log_path() { return u8str(u8path(plugin_dir()) / "diag.log"); }
+std::string plugin_file(const std::string &name)
+{
+    const std::string d = plugin_dir();
+    return d.empty() ? d : u8str(u8path(d) / u8path(name));
+}
+
+std::string plugin_log_path() { return plugin_file("diag.log"); }
 
 static bool flag(const char *file)
 {
     std::error_code ec;
-    return fs::exists(u8path(plugin_dir()) / file, ec);
+    const std::string f = plugin_file(file);
+    return !f.empty() && fs::exists(u8path(f), ec);
 }
 
 static bool set_flag(const char *file, bool on, std::string &error)
 {
-    fs::path f = u8path(plugin_dir()) / file;
+    if (plugin_dir().empty()) { // not the current folder instead (review B24)
+        error = "no plug-in folder (HOME / LOCALAPPDATA not set)";
+        return false;
+    }
+    fs::path f = u8path(plugin_file(file));
     std::error_code ec;
     if (on) {
         fs::create_directories(f.parent_path(), ec);

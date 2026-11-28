@@ -10,6 +10,9 @@ namespace vti::cc {
 // ~/Library/Application Support/virus-ti-native, Linux ~/.local/share/virus-ti-native.
 std::string plugin_dir();
 std::string plugin_log_path();
+// `name` in plugin_dir(); empty when there is no plug-in folder (HOME / LOCALAPPDATA not set): never a path relative
+// to the current folder
+std::string plugin_file(const std::string &name);
 
 // The plug-in writes diag.log unless diag.off exists (checked when the plug-in starts). On by default since 0.8.41
 // (before, diag.on switched it on; such a file changes nothing now and is removed when the log is switched off).

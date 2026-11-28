@@ -3217,7 +3217,7 @@ private:
 
 // the user's size choice, kept for every editor (not per project): <plug-in folder>/ui-zoom ("1.5");
 // VTI_NATIVE_ZOOM overrides it (tests)
-static std::string zoom_file() { return vti::cc::plugin_dir() + "/ui-zoom"; }
+static std::string zoom_file() { return vti::cc::plugin_file("ui-zoom"); } // empty without a plug-in folder
 
 static double load_zoom()
 {

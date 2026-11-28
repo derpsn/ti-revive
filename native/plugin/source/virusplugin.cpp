@@ -88,7 +88,7 @@ static int load_usb_io()
     int v = 0;
     if (const char *e = std::getenv("VTI_IO_CONFIG"))
         v = std::atoi(e);
-    else if (FILE *f = vti::u8fopen(vti::cc::plugin_dir() + "/usb-io", "r")) {
+    else if (FILE *f = vti::u8fopen(vti::cc::plugin_file("usb-io"), "r")) {
         if (std::fscanf(f, "%d", &v) != 1)
             v = 0;
         std::fclose(f);
@@ -1428,7 +1428,7 @@ tresult PLUGIN_API VirusPlugin::initialize(FUnknown *context)
         // without the user's Access installation there is nothing to show; the host still gets a valid instance
         fprintf(stderr, "Virus TI native: %s\n", err.c_str());
         if (diag_enabled()) // no device worker (and so no log) without the files: the reason, e.g. a 32-bit DLL (E345)
-            if (FILE *f = vti::u8fopen(own_cache_dir() + "/../diag.log", "a")) {
+            if (FILE *f = vti::u8fopen(vti::cc::plugin_file("diag.log"), "a")) {
                 fprintf(f, "%ld Virus TI native: no Access files: %s\n", (long)std::time(nullptr), err.c_str());
                 fclose(f);
             }
@@ -1515,10 +1515,10 @@ tresult PLUGIN_API VirusPlugin::initialize(FUnknown *context)
     // the timing (E363, E364): the original's lead of 3072 and the safety net; timing-classic.on = as before 0.8.35
     {
         std::error_code tec;
-        timing_classic_ = std::filesystem::exists(vti::u8path(own_cache_dir() + "/../timing-classic.on"), tec);
-        note_probe_on_ = diag_enabled() && std::filesystem::exists(vti::u8path(own_cache_dir() + "/../noteprobe.on"), tec);
+        timing_classic_ = std::filesystem::exists(vti::u8path(vti::cc::plugin_file("timing-classic.on")), tec);
+        note_probe_on_ = diag_enabled() && std::filesystem::exists(vti::u8path(vti::cc::plugin_file("noteprobe.on")), tec);
         // the output delays only on change, not at every Play/Stop (Control Center option, outputdelay.h resend_all)
-        od_changes_only_ = std::filesystem::exists(vti::u8path(own_cache_dir() + "/../outdelay-changes.on"), tec);
+        od_changes_only_ = std::filesystem::exists(vti::u8path(vti::cc::plugin_file("outdelay-changes.on")), tec);
         live_notes_ = vti::cc::plugin_option("live-notes"); // the plug-in folder itself: no cache folder needed (S065 C9)
         low_latency_ = vti::cc::plugin_option("low-latency") && !getenv("VTI_NATIVE_A"); // a measurement's A wins
 #ifdef _WIN32
@@ -1541,8 +1541,8 @@ tresult PLUGIN_API VirusPlugin::initialize(FUnknown *context)
         // (library scan, ready probe, marker) was lost (win10 VM, rc1, 2026-11-11)
         std::error_code ec;
         std::filesystem::create_directories(vti::u8path(own_cache_dir()), ec);
-        vti::cc::rotate_log(own_cache_dir() + "/../diag.log", vti::cc::kPluginLogLimit); // on for everyone: kept small
-        out_->set_diag_path(own_cache_dir() + "/../diag.log");
+        vti::cc::rotate_log(vti::cc::plugin_file("diag.log"), vti::cc::kPluginLogLimit); // on for everyone: kept small
+        out_->set_diag_path(vti::cc::plugin_file("diag.log"));
     }
     out_->log("Virus TI native: TI Revive %s (%s)\n", VTI_NATIVE_VERSION, VTI_GIT_REV); // which build (E563)
     if (live_notes_) { // after set_diag_path, or the line never reaches diag.log
@@ -1676,7 +1676,7 @@ void VirusPlugin::set_usb_io(int value, bool save)
         return;
     const int old = usb_io_.exchange(value);
     if (save && value != old)
-        if (FILE *f = vti::u8fopen(vti::cc::plugin_dir() + "/usb-io", "w")) {
+        if (FILE *f = vti::u8fopen(vti::cc::plugin_file("usb-io"), "w")) {
             std::fprintf(f, "%d\n", value);
             std::fclose(f);
         }
@@ -2076,15 +2076,15 @@ vti::TipsFacts VirusPlugin::tips_facts() const
 std::vector<std::string> VirusPlugin::tips_seen() const
 {
     std::vector<uint8_t> d;
-    vti::u8read(own_cache_dir() + "/../setup-tips.seen", d, 1 << 16);
+    vti::u8read(vti::cc::plugin_file("setup-tips.seen"), d, 1 << 16);
     return vti::tips_seen_parse(std::string(d.begin(), d.end()));
 }
 
 void VirusPlugin::tips_save_seen(const std::vector<std::string> &seen) const
 {
     std::error_code ec;
-    std::filesystem::create_directories(vti::u8path(own_cache_dir() + "/.."), ec);
-    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../setup-tips.seen", "wb")) {
+    std::filesystem::create_directories(vti::u8path(vti::cc::plugin_dir()), ec);
+    if (FILE *f = vti::u8fopen(vti::cc::plugin_file("setup-tips.seen"), "wb")) {
         const std::string text = vti::tips_seen_text(seen);
         fwrite(text.data(), 1, text.size(), f);
         fclose(f);
@@ -2094,15 +2094,15 @@ void VirusPlugin::tips_save_seen(const std::vector<std::string> &seen) const
 vti::InfoState VirusPlugin::info_state() const
 {
     std::vector<uint8_t> d;
-    vti::u8read(own_cache_dir() + "/../info-page.state", d, 1 << 16);
+    vti::u8read(vti::cc::plugin_file("info-page.state"), d, 1 << 16);
     return vti::info_state_parse(std::string(d.begin(), d.end()));
 }
 
 void VirusPlugin::info_save_state(const vti::InfoState &s) const
 {
     std::error_code ec;
-    std::filesystem::create_directories(vti::u8path(own_cache_dir() + "/.."), ec);
-    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../info-page.state", "wb")) {
+    std::filesystem::create_directories(vti::u8path(vti::cc::plugin_dir()), ec);
+    if (FILE *f = vti::u8fopen(vti::cc::plugin_file("info-page.state"), "wb")) {
         const std::string text = vti::info_state_text(s);
         fwrite(text.data(), 1, text.size(), f);
         fclose(f);
@@ -2113,7 +2113,7 @@ bool VirusPlugin::has_history() const
 {
     std::error_code ec;
     return std::filesystem::exists(vti::u8path(own_cache_dir() + "/RAM A"), ec) ||
-           std::filesystem::exists(vti::u8path(own_cache_dir() + "/../setup-tips.seen"), ec);
+           std::filesystem::exists(vti::u8path(vti::cc::plugin_file("setup-tips.seen")), ec);
 }
 
 bool VirusPlugin::diag_enabled()
@@ -2127,7 +2127,7 @@ void VirusPlugin::note_probe_flush()
     if (!note_probe_on_)
         return;
     std::lock_guard<std::mutex> lock(note_probe_mu_);
-    FILE *f = vti::u8fopen(own_cache_dir() + "/../diag.log", "a");
+    FILE *f = vti::u8fopen(vti::cc::plugin_file("diag.log"), "a");
     if (!f)
         return;
     const int largest = block_;
@@ -2146,13 +2146,13 @@ void VirusPlugin::diag_report()
         return;
     // a long session (the DAW open for days) must not grow the log without end either; another instance may rotate
     // the same file meanwhile, then at most a few lines go to the old file
-    vti::cc::rotate_log(own_cache_dir() + "/../diag.log", vti::cc::kPluginLogLimit);
+    vti::cc::rotate_log(vti::cc::plugin_file("diag.log"), vti::cc::kPluginLogLimit);
     note_probe_flush();
     long long drops = -1; // the editor's timer or the worker: read under the audio gate (audiogate.h)
     if (out_)
         if (AudioGate::Use ring(out_->audio_gate()); ring)
             drops = (long long)out_->audio().drops();
-    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../diag.log", "a")) {
+    if (FILE *f = vti::u8fopen(vti::cc::plugin_file("diag.log"), "a")) {
         fprintf(f, "%ld s: draws full %ld partial %ld, draw time %ld ms (longest %.1f ms, held back %ld), dirty ticks %ld, process calls %ld max %ld us,"
                    " over block time %ld, audio %d drops %lld, queued %d, host %.0f Hz block %d (largest %ld)\n",
                 (long)std::time(nullptr), diag.full_draws.exchange(0), diag.part_draws.exchange(0),
@@ -3741,7 +3741,7 @@ void VirusPlugin::load_banks()
                 fprintf(stderr, "Virus TI native: library %s/%s: %d patch(es) skipped (damaged or unknown format: %s)\n",
                         root.menu.c_str(), lib.name.c_str(), lib.skipped, why.c_str());
                 if (diag_enabled())
-                    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../diag.log", "a")) {
+                    if (FILE *f = vti::u8fopen(vti::cc::plugin_file("diag.log"), "a")) {
                         fprintf(f, "%ld Virus TI native: library %s/%s: %d patch(es) skipped (damaged or unknown format: %s)\n",
                                 (long)std::time(nullptr), root.menu.c_str(), lib.name.c_str(), lib.skipped,
                                 why.c_str());

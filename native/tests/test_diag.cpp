@@ -3,6 +3,7 @@
 #ifndef _WIN32
 #include "check.h"
 #include "cc/diag.h"
+#include "cc/updatecheck.h"
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -292,3 +293,20 @@ TEST(diag_mac_broker_log_of_the_root_service_is_not_in_tmp)
     CHECK(mac_broker_log(true) == "/Library/Logs/TI Revive/vtibroker.log");
 }
 #endif
+
+// review B24: without a plug-in folder (HOME not set) nothing is written to the current directory, the calls fail
+TEST(diag_no_plugin_dir_writes_nothing)
+{
+    Home h("vtester");
+    const fs::path cwd = fs::current_path();
+    fs::current_path(h.dir);
+    unsetenv("HOME");
+    std::string err;
+    CHECK(plugin_dir().empty() && plugin_log_path().empty());
+    CHECK(!set_plugin_log(false, err) && !err.empty());
+    err.clear();
+    CHECK(!set_plugin_option("outdelay-changes", true, err) && !err.empty());
+    CHECK(!write_update_state(UpdateState{}));
+    fs::current_path(cwd);
+    CHECK(fs::is_empty(h.dir));
+}
