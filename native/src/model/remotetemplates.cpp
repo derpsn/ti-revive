@@ -384,7 +384,9 @@ std::vector<std::string> remote_template_files(const std::string &dir)
     std::vector<std::string> out;
     std::error_code ec;
     const fs::path root = u8path(dir); // UTF-8 names (#35: path::string() threw on Windows outside the code page)
-    for (fs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
+    // skip_permission_denied: an unreadable folder would end the whole list (review B7)
+    for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
         std::error_code fe;
         if (!it->is_regular_file(fe))
             continue;
