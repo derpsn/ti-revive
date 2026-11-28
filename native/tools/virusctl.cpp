@@ -62,6 +62,10 @@ int main(int argc, char **argv)
             sysex.emplace_back(msg.begin() + a, msg.begin() + std::min(b + 1, msg.size()));
             if (refused(sysex.back()))
                 return 1;
+            if (!vti::one_message(sysex.back().data(), sysex.back().size())) { // a half message could be finished later
+                fprintf(stderr, "virusctl: rule 2: refused, not one complete MIDI message\n");
+                return 1;
+            }
             a = b + 1;
         }
     }
