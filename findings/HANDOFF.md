@@ -87,7 +87,7 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
 ## NEXT
 
 - Code review 2026-11-28 DONE (66/67, vtitests 1127, cov 97.1 %, TI2 hil.sh ALL PASS; log/2026-11.md). Audit 2026-11-28
-  (user: fix all 20): findings/audit-2026-11-28.md, workers C (tools) + D (installers). Not run: DAW, editor, mac/win.
+  (user: fix all 20): findings/audit-2026-11-28.md; C done (1-3,6,8-11,17,18), D running (16,19,20). Not run: DAW, mac/win.
 - Side project, not part of the rounds (user 2026-11-27): the Modern skin lives on branch `skin-modern` (f3fb89f7,
   local only); its state is in findings/skin-modern.md on that branch.
 
