@@ -285,6 +285,14 @@ if(PWSH_EXECUTABLE)
     set_tests_properties(installer_scripts PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
 endif()
 
+# virusctl refuses what rule 2 forbids before it asks a broker; the socket nobody serves keeps a broken guard from
+# reaching a real Virus (a different endpoint never starts the installed broker either)
+if(NOT WIN32)
+    add_test(NAME virusctl_rule2 COMMAND virusctl sysex "f0 00 20 33 01 00 72 00 00 00 f7 f0 00 20 33 01 00 72 00 03 00 f7")
+    set_tests_properties(virusctl_rule2 PROPERTIES ENVIRONMENT "VIRUSCTL_BROKER=/nonexistent/vtibroker-test.sock"
+                         PASS_REGULAR_EXPRESSION "rule 2: refused f0 00 20 33 01 00 72 00 00 00 f7")
+endif()
+
 # the test tooling's Python scripts (risk classes -> checklist items, findings/testing.md); skipped without Python 3
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_FOUND)
