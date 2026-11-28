@@ -110,7 +110,7 @@ class Rules(Base):
 
     def test_shapes_that_look_private_but_are_not_pass(self):
         for line in ("100.63.1.1 and 100.128.0.1", "macOS 10.15.7.1", "version 10.0.0.5", "fe80::1 2001:db8::1 the range fc00::/7",
-                     "1+alice@users.noreply.github.com", "file:///home/user/x"):
+                     "1+alice@users.noreply.github.com", "Co-Authored-By: Claude <noreply@anthropic.com>", "file:///home/user/x"):
             self.assertEqual(self.staged(line + "\n").returncode, 0, line)
 
     def test_personal_word_blocks_case_insensitive(self):

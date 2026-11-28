@@ -35,8 +35,10 @@ EXEMPT_FILES = {".claude/hooks/private-data.py", "scripts/tests/test_private_dat
 PLACEHOLDER_USERS = {"runner", "user", "u", "you", "me", "name", "username", "shared", "public", "default",
                      "example"}
 NOT_EMAIL_TLDS = {"png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "pdf"}
-# the project identity, GitHub's noreply addresses and placeholders; anchored, so x@derpsn.evil.com still counts
+# the project identity, GitHub's and the AI co-author trailer's noreply addresses and placeholders; anchored, so
+# x@derpsn.evil.com still counts
 ALLOWED_EMAIL = re.compile(r"^(?:callmederpsn@proton\.me|[\w.+-]+@users\.noreply\.github\.com|git@github\.com"
+                           r"|noreply@anthropic\.com"
                            r"|[\w.+-]+@example\.(?:com|org))$", re.I)
 # "macOS 10.15.7.1" is a version, not an address (a bare 10.15.7.1 still counts: it could be either)
 VERSION_BEFORE = re.compile(r"(?:macos|os x|version|ver\.?|build|firmware|\bv)\s*$", re.I)
