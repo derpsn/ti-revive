@@ -87,7 +87,8 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
 ## NEXT
 
 - Code review 2026-11-28 DONE (66/67, vtitests 1127, cov 97.1 %, TI2 hil.sh ALL PASS; log/2026-11.md). Audit 2026-11-28
-  DONE 20/20. hil.sh ALL PASS after it. rc2 CI 46135094120 red (virusctl not built on Linux CI), rc3 with fix + 0.8.45. Site check 11-28 done.
+  DONE 20/20. rc3 (CI 46135708542 green, 8 assets): Linux install.sh + hil.sh ALL PASS on /run/user socket; win11 MSI ok (8 old
+  certs removed, 1 left); Mac folder work/release-0.8.45-rc3/mac ready, Mac asleep. Checklist claude.ai/artifact/QSy5D8zFztPMwN6YW5iHvW.
 - Side project, not part of the rounds (user 2026-11-27): the Modern skin lives on branch `skin-modern` (f3fb89f7,
   local only); its state is in findings/skin-modern.md on that branch.
 

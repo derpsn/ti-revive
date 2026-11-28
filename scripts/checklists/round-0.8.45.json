@@ -1,0 +1,67 @@
+{
+ "round": "0.8.45",
+ "core": "core.json",
+ "core_items": ["LC4", "WC4", "MC4", "MC5"],
+ "lead": "Test of 0.8.45 with the CI test build 0.8.45-rc3 (run 46135708542, tag on f63a7dd8): frame pacing (#37), the Virus' audio found by USB ids on a Mac (#60), and the fixes from the code review and the audit of 2026-11-28 (knob echoes, lost broker connection, SysEx byte checks, Control Center busy gate and CANCEL, installer fixes, Linux socket in /run/user). Already done by Claude: unit tests 1127, hil.sh ALL PASS three times on the TI2 (local build twice, the installed rc3 once, the rc3 run on the new socket path), rc3 installed on Linux (install.sh) and on the win11 VM (MSI /quiet, 8 old driver certificates removed, one left). risk.py: class C on all three systems; by hand: Virus off/on everywhere, sleep on the Mac. Mark each item and add a note where something looks different; Claude reads the marks from this page.",
+ "rules": [
+  "Order: Linux first (the Virus is there), then the Windows VM, later the Mac. Close the DAW before the Virus moves.",
+  "Never power-cycle the Virus while it is attached to the VM without telling Claude first (Claude re-attaches it afterwards).",
+  "Use a disposable project. Only L3 writes to the Virus, and only into the RAM bank you name in the note (the Control Center backs it up first).",
+  "No game or other heavy program running during the timing items."
+ ],
+ "sections": [
+  {
+   "id": "linux",
+   "title": "Linux",
+   "where": "This PC, REAPER, the 0.8.45-rc3 CI build (installed by Claude)",
+   "prep": ["Nothing to install: Claude installed rc3 with install.sh and ran hil.sh on it (ALL PASS)."],
+   "items": [
+    {"id": "L1", "title": "Plug-in window smoke test",
+     "steps": ["Open a disposable REAPER project with TI Revive on a track, open the plug-in window.",
+               "Move a few knobs with the mouse, open the ARP editor and drag a few bars, open a popup menu and a submenu.",
+               "Close and reopen the plug-in window twice."],
+     "expect": "Everything draws as before, the ARP bars move where the mouse grabs them, menus open and close, no freeze or crash."},
+    {"id": "L2", "title": "A knob on the Virus recorded as automation",
+     "steps": ["Arm automation for a parameter (e.g. Cutoff) in REAPER (write mode).",
+               "Turn that knob on the Virus for a few seconds, stop, play back."],
+     "expect": "The recorded curve follows the knob smoothly; on playback the Virus' value follows, no jumps back and forth."},
+    {"id": "L3", "title": "Control Center: busy gate and CANCEL",
+     "steps": ["Close REAPER. Open the Control Center (Access look).",
+               "Start a backup of a RAM bank and press CANCEL while it runs.",
+               "Start a restore of one RAM bank from a library (name the bank in the note), and while it runs try to start a backup."],
+     "expect": "CANCEL stops the backup; the backup during the restore is refused with a busy message; CANCEL also stops the restore; the bank was saved before it was written."}
+   ]
+  },
+  {
+   "id": "vm",
+   "title": "Windows (VM)",
+   "where": "win11 VM, Ableton Live, the 0.8.45-rc3 CI build (installed by Claude, MSI /quiet)",
+   "prep": ["Claude passes the Virus through to the VM and runs <code>hil-win</code> for the automated core items."],
+   "items": [
+    {"id": "W1", "title": "Automated core run (Claude runs it)",
+     "steps": ["Claude attaches the Virus to the VM and runs hil-win."],
+     "expect": "Every item passes; the grading prints a level line for every recording."},
+    {"id": "W2", "title": "Plays in Live over ASIO at small and large buffers",
+     "steps": ["Open a disposable Live project with TI Revive, driver TI Revive Audio (ASIO).",
+               "Play at 128 and at 1024 samples, stop and start a few times, change the buffer while stopped."],
+     "expect": "Plays cleanly at both sizes, no hang after stop/start, Live never reports the driver as stopped."}
+   ]
+  },
+  {
+   "id": "mac",
+   "title": "macOS",
+   "where": "MacBook Air M3, Ableton Live 12 and Logic, the 0.8.45-rc3 CI build",
+   "prep": ["Plug the Mac into power. Move the Virus' USB cable to the Mac.",
+            "Quit every DAW, then double-click <b>Install test build.command</b> in <code>~/Downloads/TI-Revive-0.8.45-rc3</code> (Claude copies it there when the Mac is awake; asks for your password). Claude checks the installed files afterwards."],
+   "items": [
+    {"id": "M1", "title": "Automated core run (you start it, Claude grades it)",
+     "steps": ["Double-click <b>hil/hil-mac.command</b> in the same folder (Claude copies it with the package), then tell Claude it is done."],
+     "expect": "Claude grades the folder: every item passes, including the level line."},
+    {"id": "M2", "title": "Playing and automation in Logic and Live",
+     "steps": ["Open a disposable project in Logic, play, record a knob drag from the plug-in window as automation.",
+               "The same in Live."],
+     "expect": "Plays cleanly; the knob drag is recorded smoothly (#37), Logic does not lag while you drag."}
+   ]
+  }
+ ]
+}
