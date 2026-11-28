@@ -215,12 +215,9 @@ std::string update_state_path() { return u8str(u8path(plugin_dir()) / "update.tx
 UpdateState read_update_state()
 {
     UpdateState s;
-    std::ifstream f(u8path(update_state_path()), std::ios::binary);
-    if (f) {
-        std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        if (text.size() < 4096)
-            parse_update_state(text, s);
-    }
+    std::vector<uint8_t> d;
+    if (u8read(update_state_path(), d, 4095))
+        parse_update_state(std::string(d.begin(), d.end()), s);
     return s;
 }
 

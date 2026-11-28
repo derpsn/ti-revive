@@ -1,4 +1,5 @@
 #include "model/remotetemplates.h"
+#include "model/state.h"
 #include "model/utf8.h"
 #include <algorithm>
 #include <cctype>
@@ -284,23 +285,18 @@ static void put_be32(std::vector<uint8_t> &out, size_t v)
         out.push_back((uint8_t)(v >> s));
 }
 
-std::vector<uint8_t> RemoteTemplates::cache() const
+// the records of templates first..last, name record then knobs, in the plug-in state's container (model/state.h)
+std::vector<uint8_t> RemoteTemplates::container(int first, int last) const
 {
-    std::vector<uint8_t> body;
-    auto add = [&body](const std::vector<uint8_t> &r) {
-        put_be32(body, r.size());
-        body.insert(body.end(), r.begin(), r.end());
-    };
-    for (int t = 0; t < kTemplates; t++) {
-        add(names_[t]);
-        for (auto &k : knobs_[t])
-            add(k);
+    std::vector<std::vector<uint8_t>> recs;
+    for (int t = first; t <= last; t++) {
+        recs.push_back(names_[t]);
+        recs.insert(recs.end(), knobs_[t].begin(), knobs_[t].end());
     }
-    std::vector<uint8_t> out = {'M', 'I', 'D', 'I'};
-    put_be32(out, body.size());
-    out.insert(out.end(), body.begin(), body.end());
-    return out;
+    return build_container(recs);
 }
+
+std::vector<uint8_t> RemoteTemplates::cache() const { return container(0, kTemplates - 1); }
 
 int RemoteTemplates::load_cache(const std::vector<uint8_t> &d)
 {
@@ -328,17 +324,7 @@ std::vector<uint8_t> RemoteTemplates::template_file(int t) const
 {
     if (!valid(t))
         return {};
-    std::vector<uint8_t> body;
-    auto add = [&body](const std::vector<uint8_t> &r) {
-        put_be32(body, r.size());
-        body.insert(body.end(), r.begin(), r.end());
-    };
-    add(names_[t]);
-    for (auto &k : knobs_[t])
-        add(k);
-    std::vector<uint8_t> midi = {'M', 'I', 'D', 'I'};
-    put_be32(midi, body.size());
-    midi.insert(midi.end(), body.begin(), body.end());
+    const std::vector<uint8_t> midi = container(t, t);
     std::vector<uint8_t> out = {'R', 'M', 'O', 'T'};
     put_be32(out, 12); // the header's size
     put_be32(out, 1);  // version
@@ -390,11 +376,7 @@ std::vector<std::string> remote_template_files(const std::string &dir)
         std::error_code fe;
         if (!it->is_regular_file(fe))
             continue;
-        std::string ext = u8str(it->path().extension());
-        for (auto &c : ext)
-            if (c >= 'A' && c <= 'Z')
-                c = (char)(c - 'A' + 'a');
-        if (ext == ".vrt")
+        if (ascii_lower(u8str(it->path().extension())) == ".vrt")
             out.push_back(u8generic(fs::relative(it->path(), root, fe)));
     }
     std::sort(out.begin(), out.end());
@@ -409,13 +391,7 @@ std::string remote_template_name(const std::string &file)
 bool RemoteTemplates::load_file(const std::string &path)
 {
     std::vector<uint8_t> d;
-    if (FILE *f = u8fopen(path, "rb")) {
-        uint8_t buf[4096];
-        for (size_t n; (n = fread(buf, 1, sizeof buf, f)) > 0;)
-            d.insert(d.end(), buf, buf + n);
-        fclose(f);
-    }
-    return load_cache(d) > 0;
+    return u8read(path, d, 1 << 20) && load_cache(d) > 0; // the cache has 32 x 33 records, ~40 KB
 }
 
 bool RemoteTemplates::save_file(const std::string &path) const

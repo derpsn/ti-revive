@@ -14,11 +14,7 @@ namespace fs = std::filesystem;
 
 namespace vti {
 
-static std::string lower(std::string s)
-{
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)std::tolower(c); });
-    return s;
-}
+static std::string lower(std::string s) { return ascii_lower(std::move(s)); }
 
 // `path` as UTF-8 (#35); at most u8read's cap (512 MB: the Mac universal binary is the largest, ~40 MB)
 static bool read_file(const std::string &path, std::vector<uint8_t> &out) { return u8read(path, out); }

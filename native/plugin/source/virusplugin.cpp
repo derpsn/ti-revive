@@ -2075,15 +2075,9 @@ vti::TipsFacts VirusPlugin::tips_facts() const
 
 std::vector<std::string> VirusPlugin::tips_seen() const
 {
-    std::string text;
-    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../setup-tips.seen", "rb")) {
-        char b[1024];
-        size_t n;
-        while ((n = fread(b, 1, sizeof b, f)) > 0)
-            text.append(b, n);
-        fclose(f);
-    }
-    return vti::tips_seen_parse(text);
+    std::vector<uint8_t> d;
+    vti::u8read(own_cache_dir() + "/../setup-tips.seen", d, 1 << 16);
+    return vti::tips_seen_parse(std::string(d.begin(), d.end()));
 }
 
 void VirusPlugin::tips_save_seen(const std::vector<std::string> &seen) const
@@ -2099,15 +2093,9 @@ void VirusPlugin::tips_save_seen(const std::vector<std::string> &seen) const
 
 vti::InfoState VirusPlugin::info_state() const
 {
-    std::string text;
-    if (FILE *f = vti::u8fopen(own_cache_dir() + "/../info-page.state", "rb")) {
-        char b[256];
-        size_t n;
-        while ((n = fread(b, 1, sizeof b, f)) > 0)
-            text.append(b, n);
-        fclose(f);
-    }
-    return vti::info_state_parse(text);
+    std::vector<uint8_t> d;
+    vti::u8read(own_cache_dir() + "/../info-page.state", d, 1 << 16);
+    return vti::info_state_parse(std::string(d.begin(), d.end()));
 }
 
 void VirusPlugin::info_save_state(const vti::InfoState &s) const
@@ -3679,12 +3667,7 @@ std::vector<std::pair<std::string, std::string>> VirusPlugin::remote_template_fo
 bool VirusPlugin::load_remote_template(const std::string &path)
 {
     std::vector<uint8_t> d;
-    if (FILE *f = vti::u8fopen(path, "rb")) {
-        uint8_t buf[4096];
-        for (size_t n; (n = fread(buf, 1, sizeof buf, f)) > 0;)
-            d.insert(d.end(), buf, buf + n);
-        fclose(f);
-    }
+    vti::u8read(path, d, 1 << 20); // a template file is ~2 KB; unreadable or larger: empty, nothing taken
     int sel = ui_value("Remote Templates/Selected Template", -1);
     std::vector<std::vector<uint8_t>> records;
     {

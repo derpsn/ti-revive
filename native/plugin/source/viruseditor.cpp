@@ -1153,9 +1153,7 @@ public:
             std::function<void(const Element &)> walk = [&](const Element &e) {
                 for (auto &kv : e.attr)
                     if (kv.second.size() > 4) {
-                        std::string ext = kv.second.substr(kv.second.size() - 4);
-                        std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char ch) { return (char)tolower(ch); });
-                        if (ext == ".png")
+                        if (vti::ascii_lower(kv.second.substr(kv.second.size() - 4)) == ".png")
                             names.insert(kv.second);
                     }
                 for (auto &c : e.children)

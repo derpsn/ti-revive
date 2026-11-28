@@ -18,11 +18,7 @@ namespace {
 // the extension in lower case (ASCII letters only: tolower on a UTF-8 byte would be undefined)
 std::string lower_ext(const fs::path &p)
 {
-    std::string ext = u8str(p.extension());
-    for (auto &ch : ext)
-        if (ch >= 'A' && ch <= 'Z')
-            ch = (char)(ch - 'A' + 'a');
-    return ext;
+    return ascii_lower(u8str(p.extension()));
 }
 } // namespace
 
@@ -36,10 +32,9 @@ std::string skip_summary(const PatchLibrary &lib)
 
 bool load_library_file(const std::string &path, PatchLibrary &lib, const std::vector<uint8_t> &page_b)
 {
-    std::ifstream f(u8path(path), std::ios::binary);
-    if (!f)
+    std::vector<uint8_t> d;
+    if (!u8read(path, d, (size_t)64 << 20)) // a bank is ~70 KB; a .syx of 128 x 524 bytes far less than the cap
         return false;
-    std::vector<uint8_t> d((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
     lib.path = path;
     lib.dumps.clear();
     lib.skipped = 0;
