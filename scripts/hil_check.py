@@ -6,9 +6,10 @@ the recording against that grid and the plug-in's log lines (stderr) against a c
   python3 -I scripts/hil_check.py --log RUN.err [--wav RUN.wav --seconds 20] [--offline RUN.out] [--sleep --from T] [--gap A:B]
   python3 -I scripts/hil_check.py --folder DIR   (a whole Windows / Mac run: hil-win.ps1, hil-mac.command)
 Exit 0 when every check passes, 1 otherwise. The limits come from clean runs on the TI Desktop (2026-10-19:
-jitter 0.02 ms, max 1.5 ms off the grid, drift -3..-31 ppm, first note after 5-8 s).
+jitter 0.02 ms, max 1.5 ms off the grid, drift -3..-31 ppm, first note after 5-8 s; peaks -20 dBFS on 2026-11-28).
 """
 import argparse
+import math
 import os
 import re
 import sys
@@ -22,6 +23,9 @@ FIRST_NOTE_S = 15.0  # start-up (connect, state upload, readiness probe) plus th
 MAX_DEV_MS = 5.0
 MAX_JITTER_MS = 1.0
 MAX_DRIFT_PPM = 100.0
+# the onsets are found relative to the loudest sound, so noise or a muted part still makes a grid: a level floor 20 dB
+# under the quietest clean run (TI2 Desktop 2026-11-28: peaks -20.0 to -19.0 dBFS on all five items)
+MIN_PEAK_DBFS = -40.0
 
 
 def grid(onsets, period, duration, since=0.0, gaps=()):
@@ -100,12 +104,20 @@ def offline_verdicts(out):
     return [("export: paced to the Virus", 0.8 <= ratio <= 1.25, "%.2fx real time" % ratio)]
 
 
+def level_verdicts(x):
+    """the recording holds the Virus' notes, not noise: its peak (dBFS) above MIN_PEAK_DBFS"""
+    peak = max((abs(v) for v in x), default=0.0)
+    db = 20 * math.log10(peak) if peak > 0 else float("-inf")
+    return [("level: peak above %g dBFS" % MIN_PEAK_DBFS, db > MIN_PEAK_DBFS, "peak %.1f dBFS" % db)]
+
+
 def check_run(log, wav=None, seconds=20.0, offline=None, sleep=False, since=0.0, gaps=()):
     """every verdict of one run: the log, the recording against the grid, the export's pace"""
     with open(log, encoding="utf-8", errors="replace") as f:
         checks = log_verdicts(f.read(), sleep)
     if wav:
         x, rate = timing_analysis.read_wav(wav)
+        checks += level_verdicts(x)
         checks += grid_verdicts(grid(timing_analysis.onsets(x, rate), 1.0, seconds, since, gaps))
     if offline:
         with open(offline, encoding="utf-8", errors="replace") as f:

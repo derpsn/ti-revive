@@ -118,7 +118,7 @@ class Offline(unittest.TestCase):
         self.assertFalse(all(ok for _, ok, _ in hil_check.offline_verdicts("wrote x.wav\n")))
 
 
-def write_wav(path, onsets, seconds, rate=44100):
+def write_wav(path, onsets, seconds, rate=44100, amp=16000):
     """16-bit stereo: a 100 ms 440 Hz burst at each onset (what nativehost records of C4 on part 1)"""
     import math
     import struct
@@ -127,7 +127,7 @@ def write_wav(path, onsets, seconds, rate=44100):
     for t in onsets:
         s = int(t * rate)
         for i in range(s, min(n, s + rate // 10)):
-            x[i] = int(16000 * math.sin(2 * math.pi * 440 * (i - s) / rate))
+            x[i] = int(amp * math.sin(2 * math.pi * 440 * (i - s) / rate))
     data = b"".join(struct.pack("<hh", v, v) for v in x)
     with open(path, "wb") as f:
         f.write(b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " +
@@ -141,9 +141,9 @@ class Folder(unittest.TestCase):
         import tempfile
         self.dir = tempfile.mkdtemp()
 
-    def item(self, name, seconds, onsets, out=""):
+    def item(self, name, seconds, onsets, out="", amp=16000):
         p = os.path.join(self.dir, name)
-        write_wav(p + ".wav", onsets, seconds)
+        write_wav(p + ".wav", onsets, seconds, amp=amp)
         with open(p + ".err", "w") as f:
             f.write(LOG_OK)
         with open(p + ".out", "w") as f:
@@ -176,6 +176,15 @@ class Folder(unittest.TestCase):
         ok, lines = hil_check.grade_folder(self.dir)
         self.assertFalse(ok)
         self.assertIn("H3: FAIL", lines)
+
+    def test_quiet_recording_fails_the_level_check(self):  # audit 2026-11-28 #9: the grid alone is relative
+        self.clean_folder()
+        self.item("H1", 20, [6.05 + k for k in range(14)], amp=200)  # -44 dBFS: noise or a muted part, not the Virus
+        ok, lines = hil_check.grade_folder(self.dir)
+        self.assertFalse(ok)
+        self.assertTrue(any(line.startswith("  FAIL  level: peak above") for line in lines), "\n".join(lines))
+        self.assertIn("H1: FAIL", lines)
+        self.assertIn("H2-1: pass", lines)
 
     def test_runners_play_the_items_the_grader_expects(self):
         # the Windows and Mac runners name each item with its length; a changed length there must change ITEMS too
