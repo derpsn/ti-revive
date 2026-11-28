@@ -30,42 +30,54 @@ public:
     }
     // UI thread, periodically: begin(id) on a parameter's first change, perform(id, value) with the latest value,
     // end(id) END_MS after its last change
+    // The callbacks run after the lock is released (review B2): a host that hands a performed value back to process()
+    // from inside performEdit must find the echo record already there, and the receive thread is not held up.
     template <class Begin, class Perform, class End> void tick(int64_t now, Begin begin, Perform perform, End end)
     {
-        std::lock_guard<std::mutex> lk(mu_);
-        std::vector<uint32_t> keep;
-        for (uint32_t id : order_) {
-            auto &s = st_[id];
-            if (s.queued) {
-                if (!s.begun)
-                    begin(id), s.begun = true;
-                perform(id, s.value);
-                s.queued = false;
-                echo_[id] = {s.value, true, 0};
+        std::vector<Call> calls;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            std::vector<uint32_t> keep;
+            for (uint32_t id : order_) {
+                auto &s = st_[id];
+                if (s.queued) {
+                    if (!s.begun)
+                        calls.push_back({Call::Begin, id, 0}), s.begun = true;
+                    calls.push_back({Call::Perform, id, s.value});
+                    s.queued = false;
+                    echo_[id] = {s.value, true, 0};
+                }
+                if (s.begun && now - s.last >= END_MS) {
+                    calls.push_back({Call::End, id, 0});
+                    s.begun = false;
+                    echo_[id].active = false, echo_[id].ended = now;
+                }
+                if (s.begun || s.queued)
+                    keep.push_back(id);
+                else
+                    st_.erase(id);
             }
-            if (s.begun && now - s.last >= END_MS) {
-                end(id);
-                s.begun = false;
-                echo_[id].active = false, echo_[id].ended = now;
-            }
-            if (s.begun || s.queued)
-                keep.push_back(id);
-            else
-                st_.erase(id);
+            order_ = keep;
         }
-        order_ = keep;
+        for (const Call &c : calls)
+            c.kind == Call::Begin ? begin(c.id) : c.kind == Call::Perform ? perform(c.id, c.value) : end(c.id);
     }
     // the editor closes (no more ticks): open edits end now, unsent changes are dropped
     template <class End> void flush(End end)
     {
-        std::lock_guard<std::mutex> lk(mu_);
-        for (uint32_t id : order_)
-            if (st_[id].begun) {
-                end(id);
-                auto &e = echo_[id];
-                e.active = false, e.ended = st_[id].last + END_MS;
-            }
-        order_.clear(), st_.clear();
+        std::vector<uint32_t> ended;
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            for (uint32_t id : order_)
+                if (st_[id].begun) {
+                    ended.push_back(id);
+                    auto &e = echo_[id];
+                    e.active = false, e.ended = st_[id].last + END_MS;
+                }
+            order_.clear(), st_.clear();
+        }
+        for (uint32_t id : ended)
+            end(id);
     }
     // is `value` for `id`, handed back by the host at `now`, the echo of a performed edit?
     bool echo(uint32_t id, double value, int64_t now)
@@ -86,6 +98,11 @@ public:
     }
 
 private:
+    struct Call {
+        enum Kind { Begin, Perform, End } kind;
+        uint32_t id;
+        double value;
+    };
     struct State {
         double value = 0;
         int64_t last = 0;

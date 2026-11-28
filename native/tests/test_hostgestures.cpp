@@ -107,3 +107,25 @@ TEST(hostgestures_echo_survives_float_rounding)
             CHECK(!g.echo(4, (double)(float)((k + 1) / 127.0), 20));
     }
 }
+
+// review B2: the host callbacks run outside the lock. A host that hands the performed value back to process()
+// from inside performEdit (synchronously, another thread blocked on nothing) still sees it as an echo, and a knob
+// moved on the Virus during the callback is not blocked by it
+TEST(hostgestures_callbacks_outside_the_lock)
+{
+    HostGestures g;
+    bool echo_in_perform = false, echo_in_end = false, active_in_begin = false;
+    g.device_change(4, 64 / 127.0, 0);
+    g.tick(
+        10, [&](uint32_t id) { active_in_begin = g.active(id); },
+        [&](uint32_t id, double v) {
+            echo_in_perform = g.echo(id, v, 10);
+            g.device_change(5, 1 / 127.0, 10); // the receive thread meanwhile
+        },
+        [](uint32_t) {});
+    CHECK(echo_in_perform);
+    CHECK(active_in_begin);
+    CHECK(g.active(5));
+    g.flush([&](uint32_t id) { echo_in_end = g.echo(id, 64 / 127.0, 11); });
+    CHECK(echo_in_end);
+}
