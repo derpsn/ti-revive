@@ -62,7 +62,7 @@ static bool set_flag(const char *file, bool on, std::string &error)
             error = "cannot create " + u8str(f);
             return false;
         }
-    } else if (fs::exists(f, ec) && !fs::remove(f, ec)) {
+    } else if (!fs::remove(f, ec) && ec) { // false without an error: it was not there (review B26: ec decides)
         error = "cannot remove " + u8str(f) + ": " + ec.message();
         return false;
     }

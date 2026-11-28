@@ -338,3 +338,22 @@ TEST(diag_local_time)
     CHECK(local_time("%Y-%m-%d", (time_t)LLONG_MAX) == "undated");
     CHECK(local_time("%Y", (time_t)LLONG_MAX, "x") == "x");
 }
+
+// review B26: switching a flag off reports a folder it cannot look into (exists() failing counted as "not there")
+TEST(diag_flag_off_reports_an_unreadable_folder)
+{
+    Home h("vtester");
+    std::string err;
+    CHECK(set_plugin_option("outdelay-changes", true, err));
+    const fs::path dir = plugin_dir();
+    fs::permissions(dir, fs::perms::none);
+    std::error_code ec;
+    (void)fs::exists(dir / "x", ec);
+    const bool locked = (bool)ec; // root looks into every folder
+    err.clear();
+    const bool ok = set_plugin_option("outdelay-changes", false, err);
+    fs::permissions(dir, fs::perms::owner_all);
+    if (!locked)
+        SKIP("this user reads every folder");
+    CHECK(!ok && !err.empty());
+}
