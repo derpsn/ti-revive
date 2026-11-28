@@ -52,3 +52,22 @@ TEST(ccskin_burn_and_os_tabs_not_offered)
     other.parameter = "ControlCenter/SelectVirus/SelectedRow";
     CHECK(skin_node_offered(other));
 }
+
+// review B22: a layout nested deeper than any real one (they are 8 levels deep) is cut at 64 levels instead of
+// recursing until the stack runs out
+TEST(ccskin_nesting_limited)
+{
+    std::string xml = "<editor><frame width=\"10\" height=\"10\">";
+    for (int i = 0; i < 100000; i++)
+        xml += "<container>";
+    for (int i = 0; i < 100000; i++)
+        xml += "</container>";
+    xml += "</frame></editor>";
+    SkinLayout l;
+    std::string err;
+    CHECK(parse_skin(std::vector<uint8_t>(xml.begin(), xml.end()), l, err));
+    int depth = 0;
+    for (const std::vector<SkinNode> *n = &l.nodes; !n->empty(); n = &n->front().children)
+        depth++;
+    CHECK(depth <= 64);
+}

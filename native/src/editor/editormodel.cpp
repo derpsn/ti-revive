@@ -11,7 +11,11 @@ static Rgba color(const pugi::xml_node &n)
             (uint8_t)n.attribute("blue").as_int(), (uint8_t)n.attribute("alpha").as_int(255)};
 }
 
-static void read_element(const pugi::xml_node &n, Element &e)
+// nesting deeper than this is not read (the real layouts are 8 levels deep; review B22: the recursion here and in
+// the renderer ran until the stack ran out)
+static constexpr int kMaxDepth = 64;
+
+static void read_element(const pugi::xml_node &n, Element &e, int depth = 0)
 {
     e.type = n.name();
     for (auto a : n.attributes())
@@ -25,9 +29,9 @@ static void read_element(const pugi::xml_node &n, Element &e)
         else if (name == "Size") {
             e.x = c.attribute("left").as_int(), e.y = c.attribute("top").as_int();
             e.w = c.attribute("width").as_int(), e.h = c.attribute("height").as_int();
-        } else if (c.type() == pugi::node_element) {
+        } else if (c.type() == pugi::node_element && depth + 1 < kMaxDepth) {
             e.children.emplace_back();
-            read_element(c, e.children.back());
+            read_element(c, e.children.back(), depth + 1);
         }
     }
 }

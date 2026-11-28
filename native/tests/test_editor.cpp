@@ -1285,3 +1285,43 @@ TEST(editor_arp_draw_matches_hit_cells)
     // spans the 31 cells to the end, r = min(31 x 10 - 1, 18 x 31) = 309: the right edge of the element, not past it
     CHECK((sides == std::vector<int>{cx - 1, cx + 9, cx + 9, cx + 10 + 309}));
 }
+
+// review B22: editor.xml nested deeper than any real one (8 levels) is cut at 64 levels, not read (and later drawn)
+// recursively until the stack runs out
+TEST(editor_layout_nesting_limited)
+{
+    std::string xml = "<Editor><Frame width=\"10\" height=\"10\">";
+    for (int i = 0; i < 100000; i++)
+        xml += "<Container>";
+    for (int i = 0; i < 100000; i++)
+        xml += "</Container>";
+    xml += "</Frame></Editor>";
+    EditorLayout lay;
+    std::string err;
+    CHECK(lay.load(Bytes(xml.begin(), xml.end()), err));
+    int depth = 0;
+    for (const std::vector<Element> *n = &lay.elements; !n->empty(); n = &n->front().children)
+        depth++;
+    CHECK(depth <= 64);
+}
+
+// review B22: an oscillator display 1 or 2 px wide divided by zero (w - 1) and drew at NaN-derived rows
+TEST(editor_osc_classic_narrow)
+{
+    Rig g;
+    for (int w : {0, 1, 2, 3}) {
+        const std::string xml = R"(<?xml version="1.0"?><Editor><Frame width="100" height="100"><Container Part="0">
+ <Size left="0" top="0" width="100" height="100"/>
+ <OscClassicShape Parameter="Oscillator 1/Pulsewidth"><Size left="10" top="10" width=")" + std::to_string(w) +
+                                R"(" height="20"/></OscClassicShape></Container></Frame></Editor>)";
+        EditorLayout lay;
+        std::string err;
+        CHECK(lay.load(Bytes(xml.begin(), xml.end()), err));
+        EditorRenderer r(lay, *g.cond, g.dev, g.ed);
+        r.values = g.r->values;
+        RecCanvas c;
+        r.render(c);
+        for (auto &f : c.fills)
+            CHECK(f.x >= 10 && f.x <= 10 + w && f.y >= 10 && f.y <= 30);
+    }
+}

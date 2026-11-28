@@ -575,6 +575,8 @@ double EditorRenderer::osc_classic_value(int shape, int pulsewidth, int wave, co
 
 void EditorRenderer::osc_classic(Canvas &c, const Element &e, int x, int y, int part)
 {
+    if (e.w < 3 || e.h < 3) // the columns step by 1 / (w - 2): nothing to draw (review B22: divided by zero)
+        return;
     const std::string &pwp = e.get("Parameter"); // "Oscillator N/Pulsewidth"
     std::string g = pwp.substr(0, pwp.rfind('/') + 1);
     int sh = values(g + "Shape", part), pwv = values(pwp, part), ws = values(g + "WaveSelect", part);
