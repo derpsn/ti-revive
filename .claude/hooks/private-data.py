@@ -289,7 +289,7 @@ def skips_hooks(seg):
         return False
     args = iter(seg[i + 1:])
     for tok in args:
-        if tok == "--":
+        if tok == "--" or tok.startswith("<<"):  # after << comes the heredoc text, not options
             break
         if tok == "--no-verify":
             return True

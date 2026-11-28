@@ -271,7 +271,7 @@ class ClaudeHook(Base):
 
     def test_no_verify_lookalikes_pass(self):
         for cmd in ('git commit -m "-n"', "git push -n origin b", 'git commit -m "no --no-verify here"',
-                    "git log --no-verify"):
+                    "git log --no-verify", "git commit -F - <<'EOF'\nhooks: refuse --no-verify\nEOF"):
             self.assertEqual(self.bash(cmd).returncode, 0, cmd)
 
     def test_wrapped_commands_are_scanned(self):  # audit 2026-11-28 #1
