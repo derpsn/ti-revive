@@ -54,6 +54,14 @@ static void drain_mdw(void)
     uint32_t rd = __atomic_load_n(&h[0], __ATOMIC_RELAXED), wr = __atomic_load_n(&h[1], __ATOMIC_ACQUIRE);
     uint8_t buf[256];
     int n = 0;
+    // the indices live in shared memory another process writes: never index words[] with one past the ring (review A2)
+    if (rd >= RING_CAP || wr >= RING_CAP) {
+        static int reported;
+        if (!reported++)
+            vti_log("midi: MDW ring indices out of range (read %u, write %u), skipping its contents", rd, wr);
+        __atomic_store_n(&h[0], wr < RING_CAP ? wr : 0, __ATOMIC_RELEASE);
+        return;
+    }
     while (rd != wr) {
         memcpy(buf + n, &words[rd], 4);
         n += 4;
@@ -77,6 +85,12 @@ void vtimidi_rx(const uint8_t *data, int len)
     pthread_mutex_lock(&g_rd_lock);
     uint32_t *h = ring_hdr(g_rd), *words = h + 3;
     uint32_t wr = __atomic_load_n(&h[1], __ATOMIC_RELAXED);
+    if (wr >= RING_CAP || __atomic_load_n(&h[0], __ATOMIC_ACQUIRE) >= RING_CAP) { // shared memory: see drain_mdw
+        if (!g_full_reported++)
+            vti_log("midi: MDR ring indices out of range, dropping");
+        pthread_mutex_unlock(&g_rd_lock);
+        return;
+    }
     for (int i = 0; i + 4 <= len; i += 4) {
         if (!data[i] && !data[i + 1] && !data[i + 2] && !data[i + 3])
             continue; // padding
