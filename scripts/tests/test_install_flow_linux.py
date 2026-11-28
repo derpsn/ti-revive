@@ -1,5 +1,5 @@
 """The whole Linux install and uninstall (src/installer-linux/install.sh, uninstall.sh) in a temporary HOME. sudo,
-systemctl, udevadm, msiextract, ldd and xdg-user-dir are stand-ins on PATH that only record their arguments, and the
+systemctl, udevadm, yabridgectl, msiextract, ldd and xdg-user-dir are stand-ins on PATH that only record their arguments, and the
 udev rule path points into the temp folder (TIREVIVE_UDEV_RULE), so nothing of this machine is touched.
 Run: python3 -I -m unittest discover -s scripts/tests"""
 import os
@@ -19,6 +19,7 @@ STUBS = {
     "sudo": 'echo "sudo $*" >> "$T/calls"',
     "udevadm": 'echo "udevadm $*" >> "$T/calls"',
     "systemctl": 'echo "systemctl $*" >> "$T/calls"',
+    "yabridgectl": 'echo "yabridgectl $*" >> "$T/calls"',
     "ldd": "true",
     "xdg-user-dir": 'echo "$HOME/Documents"',
     # an unpacked 64-bit Access .msi: Common/ with the DLL, the ROM file and the Control Center, manuals, libraries
