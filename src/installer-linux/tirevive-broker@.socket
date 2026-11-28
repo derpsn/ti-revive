@@ -4,7 +4,7 @@
 Description=TI Revive broker socket (Access Virus TI %i)
 
 [Socket]
-ListenStream=/tmp/vtibroker-%U-%i.sock
+ListenStream=%t/vtibroker-%U-%i.sock
 SocketMode=0600
 
 [Install]

@@ -101,6 +101,8 @@ class InstallFlow(unittest.TestCase):
             f.write("# an older rule\n")
         out = self.sh("install.sh", "Virus TI Software Suite 5.1.7.00 64-bit.msi")
         self.assertIn("set up in", out)
+        # audit 20: the socket moved to %t; the restart puts an upgraded install's listener there at once
+        self.assertIn("systemctl --user restart tirevive-broker.socket", self.calls())
         lib = "Documents/Access Music/Virus TI/Patches/Factory.mdb"
         installed = self.files()
         for f in (".local/lib/tirevive/vtibroker", ".vst3/TI Revive.vst3", ".config/tirevive/access-dir",

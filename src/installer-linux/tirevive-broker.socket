@@ -5,7 +5,8 @@
 Description=TI Revive broker socket (Access Virus TI)
 
 [Socket]
-ListenStream=/tmp/vtibroker-%U.sock
+# %t = $XDG_RUNTIME_DIR, only the user can create files there (audit 20; /tmp before 0.8.45)
+ListenStream=%t/vtibroker-%U.sock
 SocketMode=0600
 
 [Install]

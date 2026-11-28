@@ -141,7 +141,7 @@ if __name__ == "__main__":
 
 
 class BrokerSlotUnits(unittest.TestCase):
-    """Several Viruses (#45): systemd starts broker N (vtibroker -slot N) on /tmp/vtibroker-<uid>-N.sock, the path
+    """Several Viruses (#45): systemd starts broker N (vtibroker -slot N) on $XDG_RUNTIME_DIR/vtibroker-<uid>-N.sock, the path
     the plug-in connects to (devslot.h); the release package and the installer carry the template units."""
     I = os.path.join(HERE, "..", "..", "src", "installer-linux")
 
@@ -150,7 +150,8 @@ class BrokerSlotUnits(unittest.TestCase):
             return f.read()
 
     def test_template_socket_and_service_match_the_broker(self):
-        self.assertIn("ListenStream=/tmp/vtibroker-%U-%i.sock", self.read("tirevive-broker@.socket"))
+        self.assertIn("ListenStream=%t/vtibroker-%U-%i.sock", self.read("tirevive-broker@.socket"))
+        self.assertIn("ListenStream=%t/vtibroker-%U.sock", self.read("tirevive-broker.socket"))  # audit 20
         svc = self.read("tirevive-broker@.service")
         self.assertIn("ExecStart=%h/.local/lib/tirevive/vtibroker -slot %i", svc)
         self.assertIn("Requires=tirevive-broker@%i.socket", svc)

@@ -251,16 +251,36 @@ static intptr_t os_connect(const std::string &endpoint, int slot, std::string &e
     sa.sun_family = AF_UNIX;
     char sfx[4];
     vti_slot_suffix(sfx, slot);
-    if (endpoint.empty())
-        snprintf(sa.sun_path, sizeof sa.sun_path, "/tmp/vtibroker-%u%s.sock", (unsigned)getuid(), sfx);
-    else if (endpoint.size() < sizeof sa.sun_path)
-        memcpy(sa.sun_path, endpoint.c_str(), endpoint.size() + 1);
+    // the broker's socket in the runtime folder (systemd's %t; /run/user/<uid> when the DAW was started without
+    // XDG_RUNTIME_DIR), then in /tmp: a broker started by hand without a runtime folder, as root, or one from before
+    // 0.8.45 whose socket unit was not updated yet (audit 20). On macOS both are /tmp.
+    char paths[2][sizeof sa.sun_path];
+    int n = 1;
+    if (endpoint.empty()) {
+        std::string run = getenv("XDG_RUNTIME_DIR") ? getenv("XDG_RUNTIME_DIR") : "/run/user/" + std::to_string(getuid());
+        vti_sock_path(paths[0], sizeof paths[0], (unsigned)getuid(), sfx, run.c_str());
+        vti_sock_path(paths[1], sizeof paths[1], (unsigned)getuid(), sfx, nullptr);
+        n = strcmp(paths[0], paths[1]) ? 2 : 1;
+    } else if (endpoint.size() < sizeof sa.sun_path)
+        memcpy(paths[0], endpoint.c_str(), endpoint.size() + 1);
     else {
         error = "socket path too long: " + endpoint;
         return -1;
     }
-    int fd = cloexec(::socket(AF_UNIX, SOCK_STREAM, 0));
-    bool ok = fd >= 0 && !::connect(fd, (sockaddr *)&sa, sizeof sa);
+    int fd = -1;
+    bool ok = false;
+    int first_errno = 0;
+    for (int i = 0; i < n && !ok; i++) {
+        if (fd >= 0)
+            ::close(fd);
+        memcpy(sa.sun_path, paths[i], sizeof sa.sun_path);
+        fd = cloexec(::socket(AF_UNIX, SOCK_STREAM, 0));
+        ok = fd >= 0 && !::connect(fd, (sockaddr *)&sa, sizeof sa);
+        if (!ok && i == 0)
+            first_errno = errno;
+    }
+    if (!ok) // the error names the first place, where the broker is expected
+        memcpy(sa.sun_path, paths[0], sizeof sa.sun_path);
 #ifdef __APPLE__
     if (fd >= 0 && !ok && endpoint.empty() && start_broker(slot)) // never start the real broker for another endpoint
         for (int i = 0; i < 40 && !ok; i++) { // up to ~4 s for the broker to listen
@@ -271,12 +291,13 @@ static intptr_t os_connect(const std::string &endpoint, int slot, std::string &e
         }
 #endif
     if (!ok) {
-        error = std::string("cannot connect to the TI Revive broker at ") + sa.sun_path + ": " + strerror(errno);
+        error = std::string("cannot connect to the TI Revive broker at ") + sa.sun_path + ": " +
+                strerror(first_errno ? first_errno : errno);
         if (fd >= 0)
             ::close(fd);
         return -1;
     }
-    // the socket lives in /tmp: only a broker of this user is talked to - another user could have made the path
+    // the socket can live in /tmp: only a broker of this user is talked to - another user could have made the path
     // first and feed the plug-in what it likes (review 2026-10-19 H4)
     uid_t peer = (uid_t)-1;
 #ifdef __APPLE__

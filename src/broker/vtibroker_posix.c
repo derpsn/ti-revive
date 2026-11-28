@@ -7,8 +7,8 @@
 // function on libusb (vtiusbaudio_libusb.c) into POSIX shared memory (vtiaudioshm.h), with VTIMSG_AUDIO_TICK to
 // the audio client per block, see findings/design-linux.md.
 //
-// usage: vtibroker [-v] [-stay] [-slot N]   socket: /tmp/vtibroker-<uid>.sock (VTI_SOCK_FMT); Virus N > 1 (several
-// connected, devslot.h, #45): /tmp/vtibroker-<uid>-N.sock, its own audio memory
+// usage: vtibroker [-v] [-stay] [-slot N]   socket: $XDG_RUNTIME_DIR/vtibroker-<uid>.sock (macOS, or no runtime dir:
+// /tmp, vti_sock_path); Virus N > 1 (several connected, devslot.h, #45): vtibroker-<uid>-N.sock, its own audio memory
 #include "vticore.h"
 #include "vtiproto.h"
 #include "brokerinfo.h"
@@ -56,7 +56,6 @@
 static unsigned g_owner_uid; // the user served: getuid(), or SUDO_UID for the sudo broker (owneruid.h)
 static int g_usb_audio = 1;  // macOS: only with VTI_LIBUSB_AUDIO=1 (main)
 
-#define VTI_SOCK_FMT "/tmp/vtibroker-%u%s.sock" // uid, slot suffix (devslot.h)
 #ifdef MSG_NOSIGNAL
 #define MSG_NOSIGNAL_OR_ZERO MSG_NOSIGNAL
 #else
@@ -1422,11 +1421,12 @@ int main(int argc, char **argv)
 #endif
     char sfx[4];
     vti_slot_suffix(sfx, vti_slot);
-    snprintf(sa.sun_path, sizeof sa.sun_path, VTI_SOCK_FMT, g_owner_uid, sfx);
+    // a broker run as root for the user (sudo) has no runtime dir of theirs: /tmp, which the plug-in tries second
+    vti_sock_path(sa.sun_path, sizeof sa.sun_path, g_owner_uid, sfx, geteuid() == 0 ? NULL : getenv("XDG_RUNTIME_DIR"));
     int s = -1;
 #ifdef __APPLE__
-    // Started by launchd socket activation (LaunchAgent with a "Listeners" socket, scripts/mac-install-broker.sh):
-    // launchd owns the socket and starts us on the first connect; after the idle exit it starts us again.
+    // Started by launchd socket activation (the libusb package's LaunchDaemon with a "Listeners" socket, written by
+    // src/installer-mac/scripts/postinstall): launchd owns the socket and starts us on the first connect.
     int *fds = NULL;
     size_t nfds = 0;
     if (launch_activate_socket("Listeners", &fds, &nfds) == 0 && nfds > 0) {

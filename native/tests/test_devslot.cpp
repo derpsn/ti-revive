@@ -68,3 +68,24 @@ TEST(slot_port_ids_never_collide)
                 for (int d = 0; d < 2; d++)
                     CHECK((s == t && c == d) || vti_slot_port_id(c, s) != vti_slot_port_id(d, t));
 }
+
+// audit 20: the Linux broker socket lives in the user's runtime folder (systemd's %t, only theirs), /tmp only without
+// one (and always on macOS, where the launchd service of the libusb package owns /tmp/vtibroker-<uid>.sock)
+TEST(socket_path_in_the_runtime_dir_else_tmp)
+{
+    char p[108];
+    vti_sock_path(p, sizeof p, 1000, "", "/run/user/1000");
+#ifdef __APPLE__
+    CHECK(!strcmp(p, "/tmp/vtibroker-1000.sock"));
+#else
+    CHECK(!strcmp(p, "/run/user/1000/vtibroker-1000.sock"));
+    vti_sock_path(p, sizeof p, 1000, "-2", "/run/user/1000");
+    CHECK(!strcmp(p, "/run/user/1000/vtibroker-1000-2.sock"));
+#endif
+    vti_sock_path(p, sizeof p, 1000, "-2", nullptr);
+    CHECK(!strcmp(p, "/tmp/vtibroker-1000-2.sock"));
+    vti_sock_path(p, sizeof p, 1000, "", ""); // set but empty, or relative: not a place to trust
+    CHECK(!strcmp(p, "/tmp/vtibroker-1000.sock"));
+    vti_sock_path(p, sizeof p, 1000, "", "run/user/1000");
+    CHECK(!strcmp(p, "/tmp/vtibroker-1000.sock"));
+}

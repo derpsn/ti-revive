@@ -22,7 +22,7 @@ public:
     using ObserveHandler = std::function<void(uint16_t type, const uint8_t *data, size_t len)>;
 
     ~Broker();
-    // Connect (POSIX: Unix socket /tmp/vtibroker-<uid>.sock; Windows: named pipe \\.\pipe\vtibroker), say HELLO, start the reader.
+    // Connect (POSIX: Unix socket $XDG_RUNTIME_DIR/vtibroker-<uid>.sock, then /tmp/vtibroker-<uid>.sock; Windows: named pipe \\.\pipe\vtibroker), say HELLO, start the reader.
     bool open(std::string &error);
     void close();
     bool device_present() const { return present_; }
@@ -42,7 +42,7 @@ public:
     bool in_use_elsewhere() const { return elsewhere_; }
     // shown in the broker's status for observers ("TI Revive Virus Control", "tirevive-cc", ...); before open()
     void set_name(const std::string &name) { name_ = name; }
-    // POSIX: another socket path instead of /tmp/vtibroker-<uid>.sock (unit tests with a fake broker); "" = the
+    // POSIX: another socket path instead of the broker's (vti_sock_path) (unit tests with a fake broker); "" = the
     // broker's own. Set before open(); only code sets it, never the environment.
     void set_endpoint(const std::string &path) { endpoint_ = path; }
     // which Virus when several are connected (src/broker/devslot.h, #45): broker N serves the N-th one, on its own
