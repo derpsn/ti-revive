@@ -198,3 +198,37 @@ TEST(dump_fast_path_equals_full_path)
             CHECK(a == b);
         }
 }
+
+// a parameter SysEx template with every transport byte kind; `tag` sets its fixed byte, `map` the controller index
+static bool load_transport(RemoteDevice &d, const char *tag, const char *map)
+{
+    std::string xml = std::string(R"(<?xml version="1.0"?><Remotedevice device="T" version="1"><ParameterSets>
+ <ParameterSet name="Osc"><Parameter name="Shape" part="all" defaultmessage="P"/></ParameterSet></ParameterSets>
+ <MIDIMessages><MIDIMessage id="P" name="P">
+  <byte index="0" content="sysexstart"/><byte index="1" content="byte" tag=")") + tag + R"("/>
+  <byte index="2" content="deviceid"/><byte index="3" content="part"/>
+  <byte index="4" content="controllerid"><parameter mapindex=")" + map + R"(" content="Osc/Shape"/></byte>
+  <byte index="5" content="value"/><byte index="6" content="sysexend"/>
+ </MIDIMessage></MIDIMessages></Remotedevice>)";
+    std::string err;
+    return d.load(Bytes(xml.begin(), xml.end()), err);
+}
+
+// nothing outside 7 bits reaches the wire as a data byte (review B1): such a message is not built at all
+TEST(model_encode_refuses_bytes_above_7f)
+{
+    RemoteDevice d;
+    CHECK(load_transport(d, "114", "5"));
+    uint8_t m[16];
+    CHECK_EQ(d.encode_into("Osc/Shape", 3, 2, m, sizeof m, 0x10), 7u);
+    CHECK(m[1] == 114 && m[2] == 0x10 && m[3] == 2 && m[4] == 5 && m[5] == 3 && m[6] == 0xF7);
+    CHECK_EQ(d.encode_into("Osc/Shape", 3, 2, m, sizeof m, 0x80), 0u);  // device id
+    CHECK_EQ(d.encode_into("Osc/Shape", 3, 0x80, m, sizeof m, 0x10), 0u); // part
+    CHECK_EQ(d.encode_into("Osc/Shape", 3, -1, m, sizeof m, 0x10), 0u);
+    RemoteDevice c;
+    CHECK(load_transport(c, "114", "200"));
+    CHECK_EQ(c.encode_into("Osc/Shape", 3, 2, m, sizeof m, 0x10), 0u);   // controller id
+    RemoteDevice t;
+    CHECK(!load_transport(t, "200", "5"));                               // a fixed byte that is no MIDI byte
+    CHECK(!load_transport(t, "300", "5"));
+}

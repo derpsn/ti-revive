@@ -127,6 +127,11 @@ bool RemoteDevice::load(const std::vector<uint8_t> &xml, std::string &error)
                 error = "remotedevice.xml: " + mm.id + ": byte index out of range";
                 return false;
             }
+            // a fixed byte is a 7-bit data byte or SysEx framing (F0/F7 in dump headers)
+            if (mb.tag > 0x7F && mb.tag != 0xF0 && mb.tag != 0xF7) {
+                error = "remotedevice.xml: " + mm.id + ": byte tag out of range";
+                return false;
+            }
             for (auto p : b.children("parameter"))
                 mb.controllers.push_back({num(p, "mapindex", 0), p.attribute("content").value()});
             mm.bytes.push_back(mb);
@@ -189,7 +194,7 @@ size_t RemoteDevice::encode_into(const std::string &path, int value, int part, u
     int channel = part & 15;
     for (auto &b : m->bytes) {
         const std::string &c = b.content;
-        uint8_t v;
+        int v; // data bytes must fit 7 bits, else the message is not built (a malformed one never reaches the wire)
         if (c == "controller")
             v = (uint8_t)(0xB0 | channel);
         else if (c == "polypressure")
@@ -199,18 +204,20 @@ size_t RemoteDevice::encode_into(const std::string &path, int value, int part, u
         else if (c == "sysexend")
             v = 0xF7;
         else if (c == "byte")
-            v = (uint8_t)(b.tag < 0 ? 0 : b.tag);
+            v = b.tag < 0 ? 0 : b.tag;
         else if (c == "deviceid")
-            v = (uint8_t)device_id;
+            v = device_id;
         else if (c == "part")
-            v = (uint8_t)part;
+            v = part;
         else if (c == "controllerid")
-            v = (uint8_t)ctrl;
+            v = ctrl;
         else if (c == "value")
-            v = (uint8_t)(value & 0x7F);
+            v = value & 0x7F;
         else
             return 0;
-        out[n++] = v;
+        if (v < 0 || (v > 0x7F && c != "controller" && c != "polypressure" && c != "sysexstart" && c != "sysexend"))
+            return 0;
+        out[n++] = (uint8_t)v;
     }
     return n;
 }
