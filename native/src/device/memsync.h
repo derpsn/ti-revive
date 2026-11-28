@@ -49,7 +49,9 @@ private:
 
 class MemorySync {
 public:
-    // standalone: owns the broker's receive handler (tools/virussync)
+    // standalone: owns the broker's receive handler (tools/virussync). `broker` must outlive this object: its rx
+    // handler points here until the destructor removes it (Broker::on_rx waits for a running call, so after the
+    // destructor nothing of this object is used); the broker is not closed or otherwise touched by it (review A22)
     MemorySync(Broker &broker, int device_id = 0x10);
     // embedded (the plug-in): `send` queues a SysEx to the Virus, replies are passed in with feed()
     explicit MemorySync(std::function<bool(const std::vector<uint8_t> &)> send, int device_id = 0x10);
@@ -150,6 +152,7 @@ private:
     bool give_up(int bank, int program); // true at the 3rd: stop
     void note_reply(const char *what, int bank, int program, size_t got, size_t want, int t);
     bool was_cancelled(); // cancel(), or no Virus for this instance (present)
+    bool should_stop(const std::atomic<bool> *stop); // before a request: `stop`, before_request refusing, or cancelled
     bool wait_slice(const std::vector<uint8_t> &match, Dump &reply, std::chrono::steady_clock::time_point until);
     Broker *broker_ = nullptr;
     std::function<bool(const std::vector<uint8_t> &)> send_;

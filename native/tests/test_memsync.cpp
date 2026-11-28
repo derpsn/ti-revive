@@ -112,6 +112,25 @@ TEST(memsync_keeps_sysex_only_while_a_request_waits)
     CHECK_EQ(sync.queued(), 0u); // the reply leaves with transact, nothing stays behind
 }
 
+TEST(memsync_keeps_only_awaited_answers_while_a_request_waits)
+{
+    // review A20: during a request, other Access SysEx (parameter changes, other replies) did pile up in the inbox
+    MemorySync *ms = nullptr;
+    size_t during = 99;
+    MemorySync sync([&](const Bytes &) {
+        for (int i = 0; i < 50; i++)
+            ms->feed({0xF0, 0x00, 0x20, 0x33, 0x01, 0x10, 0x70, 0x00, (uint8_t)i, 0x00, 0xF7}); // not the answer
+        during = ms->queued();
+        ms->feed(fake_single(0, 0, 1));
+        return true;
+    });
+    ms = &sync;
+    CHECK_EQ(sync.transact({0xF0, 0x00, 0x20, 0x33, 0x01, 0x10, 0x30, 0x00, 0x00, 0xF7}, {0x10, 0x00, 0x00}, 500, 1)
+                 .size(),
+             524u);
+    CHECK_EQ(during, 0u);
+}
+
 TEST(memsync_single_asks_again_after_a_bad_checksum)
 {
     // audit #32: a 524-byte reply was taken on its size alone, a damaged one went into the bank cache on disk

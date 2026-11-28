@@ -172,7 +172,7 @@ void MemorySync::feed(const std::vector<uint8_t> &m)
                             std::equal(match_.begin(), match_.end(), m.begin() + 6);
         if (single && !answer && !late_held_)
             late_[{m[7], m[8]}] = m;
-        if (!waiting_) // the plug-in sees every Access SysEx of a session: keep only what a request waits for
+        if (!answer) // the plug-in sees every Access SysEx of a session: keep only what a request waits for (review A20)
             return;
         inbox_.push_back(m);
         cv_.notify_all();
@@ -312,6 +312,11 @@ void MemorySync::cancel()
 
 // an empty reply after cancel() is the plug-in closing, not a Virus that did not answer (E314: "bank sync failed"
 // when Live closed the plug-in during the sync)
+bool MemorySync::should_stop(const std::atomic<bool> *stop)
+{
+    return (stop && *stop) || (before_request && !before_request()) || was_cancelled();
+}
+
 bool MemorySync::was_cancelled()
 {
     if (present && !present()) // no Virus for this instance (handed over, E591 (2)): a stop, not a miss
@@ -468,7 +473,7 @@ int MemorySync::read_bank(int bank, Bank &cache, const std::function<void(int)> 
 {
     const std::vector<uint8_t> rise = rise_message(dev_, 4);
     for (int p = 0; p < 128; p++) {
-        if ((stop && *stop) || (before_request && !before_request()) || was_cancelled())
+        if (should_stop(stop))
             return -2;
         send_(rise);
         Dump d = single(bank, p);
@@ -490,7 +495,7 @@ int MemorySync::read_missing(int bank, Bank &cache, const std::function<void(int
     for (int p = 0; p < 128; p++) {
         if (!cache[p].empty())
             continue;
-        if ((stop && *stop) || (before_request && !before_request()) || was_cancelled())
+        if (should_stop(stop))
             return -2;
         send_(rise);
         Dump d = single(bank, p);
