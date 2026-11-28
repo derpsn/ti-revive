@@ -211,11 +211,16 @@ void vti_close(vti *v)
         vti_link(v, 0);
     if (v->stop_ev)
         SetEvent(v->stop_ev);
+    int stuck = 0;
     for (int i = 0; i < 2; i++)
         if (v->rd[i]) {
-            WaitForSingleObject(v->rd[i], 2000);
+            stuck |= WaitForSingleObject(v->rd[i], 2000) != WAIT_OBJECT_0;
             CloseHandle(v->rd[i]);
         }
+    if (stuck) { // a reader still runs on v and its handles: leak them rather than free under it (review A5)
+        vti_log("vti: a reader did not stop within 2 s, its device memory is left allocated\n");
+        return;
+    }
     for (int i = 0; i < 2; i++) {
         if (v->mi[i].usb)
             WinUsb_Free(v->mi[i].usb);

@@ -203,8 +203,12 @@ void vti_close(vti *v)
     CancelIoEx(v->pipe, NULL);
     CloseHandle(v->pipe);
     if (v->rd) {
-        WaitForSingleObject(v->rd, 2000);
+        const int stuck = WaitForSingleObject(v->rd, 2000) != WAIT_OBJECT_0;
         CloseHandle(v->rd);
+        if (stuck) { // the reader still runs on v: leak it rather than free under it (review A5)
+            vti_log("vti: the reader did not stop within 2 s, its memory is left allocated\n");
+            return;
+        }
     }
     CloseHandle(v->ctl_done);
     CloseHandle(v->audio_done);
