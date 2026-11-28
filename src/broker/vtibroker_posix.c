@@ -158,6 +158,8 @@ static int read_all(int fd, void *p, size_t n)
 
 static int send_msg(client *c, uint16_t type, const void *a, int alen, const void *b, int blen)
 {
+    if (alen < 0 || blen < 0 || alen + blen > VTIMSG_MAX) // the header's length is 16 bits (review A10)
+        return -1;
     vtimsg h = {type, (uint16_t)(alen + blen)};
     pthread_mutex_lock(&c->wr);
     int r = write_all(c->fd, &h, sizeof h) || (alen && write_all(c->fd, a, (size_t)alen)) ||

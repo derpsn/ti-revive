@@ -21,6 +21,7 @@ int bh_writes(uint8_t *last, int *len);
 void bh_busy(int on);
 int bh_inside(void);
 int bh_stopped(void);
+int bh_send(int fd, int len);
 }
 
 namespace {
@@ -453,4 +454,17 @@ TEST(broker_old_client_gets_no_write_reports)
     close(b);
     CHECK(until([] { return bh_clients() == 0; }));
     bh_device(0);
+}
+
+TEST(broker_send_refuses_a_message_longer_than_the_protocol)
+{
+    // review A10: the 16-bit header length wrapped and the client read the rest of the payload as the next messages
+    int s[2];
+    CHECK(socketpair(AF_UNIX, SOCK_STREAM, 0, s) == 0);
+    CHECK_EQ(bh_send(s[1], VTIMSG_MAX + 1), -1);
+    pollfd p{s[0], POLLIN, 0};
+    CHECK_EQ(poll(&p, 1, 0), 0); // nothing was sent
+    CHECK_EQ(bh_send(s[1], 4), 0);
+    close(s[0]);
+    close(s[1]);
 }

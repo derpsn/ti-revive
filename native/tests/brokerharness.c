@@ -156,3 +156,14 @@ int bh_writes(uint8_t *last, int *len) // the number of writes that reached the 
     pthread_mutex_unlock(&g_bh);
     return n;
 }
+
+int bh_send(int fd, int len) // send_msg of `len` payload bytes to fd (a client that is not served), its result
+{
+    static uint8_t zero[2 * VTIMSG_MAX];
+    client c = {0};
+    c.fd = fd;
+    pthread_mutex_init(&c.wr, NULL);
+    int r = send_msg(&c, VTIMSG_STATE, zero, len, NULL, 0);
+    pthread_mutex_destroy(&c.wr);
+    return r;
+}
