@@ -86,8 +86,8 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
 
 ## NEXT
 
-- Code review 2026-11-28 (user: fix all): 67 tasks in findings/review-2026-11-28.md. A (transport) done: 32 fixed,
-  A8 skipped; B (logic) running. TDD, no hardware; gui_duplicate_editors fails without a Virus attached (check).
+- Code review 2026-11-28 DONE (log/2026-11.md): 66/67 fixed, A8 skipped (finding wrong); unit tests 5/5, vtitests
+  1122. Not run yet: hil.sh on the TI2, the 3 nativehost/GUI ctests, any macOS or Windows build of the changes.
 - Side project, not part of the rounds (user 2026-11-27): the Modern skin lives on branch `skin-modern` (f3fb89f7,
   local only); its state is in findings/skin-modern.md on that branch.
 
