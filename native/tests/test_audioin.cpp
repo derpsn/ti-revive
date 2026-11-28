@@ -4,6 +4,7 @@
 #include "check.h"
 #include <algorithm>
 #include <cmath>
+#include <type_traits>
 #include "device/audioin.h"
 #include "device/crossfade.h"
 #ifdef __linux__
@@ -370,6 +371,37 @@ TEST(audioin_output_ring)
     b.write_out(st, 3);
     CHECK_EQ(b.out_queued(), 0);
 }
+// review A17: a frame before the stream's start is silence, not what is left at the ring's end
+TEST(audioin_read_at_before_frame_zero_is_silence)
+{
+    Ring r;
+    AudioIn a;
+    CHECK(r.shm && a.open(r.name.c_str()));
+    for (int c = 0; c < VTI_AUDIO_IN_CH; c++) // leftovers at the ring's end (frame -1 maps there)
+        r.shm->in[(VTI_AUDIO_RING - 1) * VTI_AUDIO_IN_CH + c] = 1000;
+    r.produce(100);
+    float l1[2], r1[2], l2[2], r2[2];
+    a.read_at(l1, r1, l2, r2, 2, -1);
+    CHECK(l1[0] == 0 && r2[0] == 0);
+    CHECK(l1[1] == Ring::sample(0, 2) * K);
+    int16_t raw[2 * VTI_AUDIO_IN_CH];
+    a.read_raw_at(raw, 2, -1);
+    CHECK(raw[0] == 0 && raw[VTI_AUDIO_IN_CH + 2] == Ring::sample(0, 2));
+}
+
+// review A18: one AudioIn owns one mapping: never copied, and a second open() lets the first ring go
+static_assert(!std::is_copy_constructible<AudioIn>::value && !std::is_copy_assignable<AudioIn>::value, "AudioIn owns its map");
+TEST(audioin_open_again_closes_the_old_ring)
+{
+    Ring r;
+    AudioIn a;
+    CHECK(r.shm && a.open(r.name.c_str()));
+    r.produce(10);
+    CHECK(a.streaming());
+    CHECK(!a.open("/vtitests-audio-missing"));
+    CHECK(!a.streaming() && a.newest_frame() == -1);
+}
+
 #else
 TEST(audioin_ring)
 {

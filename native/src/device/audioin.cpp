@@ -31,6 +31,7 @@ extern "C" {
 #include "ratesw.h"
 #include <chrono>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -55,6 +56,13 @@ template <class T> static inline T load_acquire(volatile T *p)
 
 AudioIn::~AudioIn() { close(); }
 
+// frame f of the ring is there: written, not yet overwritten (1024 frames of margin), and not before the stream's start
+// (frame -1 is the ring's last slot: what an earlier stream left there, review A17)
+static bool in_ring(int64_t f, int64_t newest)
+{
+    return newest >= 0 && f >= 0 && f < newest && f >= newest - VTI_AUDIO_RING + 1024;
+}
+
 #ifdef __APPLE__
 // macOS: the Virus' audio function is USB class compliant, so Core Audio offers it as an input device. The broker only
 // carries MIDI there; this reader fills the same ring (vti_audio_shm, here in our own memory) from an IOProc, so the
@@ -69,6 +77,10 @@ struct MacAudio {
     vti::RateMeter meter;   // the rate the frames really arrive at (E377)
     vti_relock relock{};    // away and back when that is the other rate, three tries per stream
     uintptr_t id = 0;       // key in g_macs (the rate listener's user data)
+    MacAudio() = default;
+    MacAudio(const MacAudio &) = delete;
+    MacAudio &operator=(const MacAudio &) = delete;
+    ~MacAudio() { delete ring; }
 };
 
 // Rate following on macOS (design-rate.md step 4): Core Audio owns the Virus' USB audio, so the plug-in sets the
@@ -116,10 +128,10 @@ static uintptr_t g_mac_next = 1;
 static void ring_rate(MacAudio *m)
 {
     const uint32_t v = nominal_rate(m->dev) == 48000 ? 48000 : 44100;
-    if (m->ring->rate == v)
+    if (load_acquire(&m->ring->rate) == v)
         return;
     m->gaps.set_rate((int)v);
-    m->ring->rate = v;
+    __atomic_store_n(&m->ring->rate, v, __ATOMIC_RELEASE); // the IOProc and the plug-in read it (review A19)
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     __atomic_add_fetch(&m->ring->rate_gen, 1, __ATOMIC_SEQ_CST);
 }
@@ -294,6 +306,7 @@ static OSStatus io_proc(AudioObjectID, const AudioTimeStamp *, const AudioBuffer
 bool AudioIn::open(const char *linux_name, int rate)
 {
     (void)rate; // macOS only: Linux and Windows ask the broker (Broker::audio)
+    close(); // review A18: a second open() let the first mapping (or Core Audio reader) leak
     rate_gen_seen_ = -1;
     (void)linux_name; // Linux only
 #if defined(__linux__) || defined(__APPLE__)
@@ -347,22 +360,20 @@ bool AudioIn::open(const char *linux_name, int rate)
     pos_ = -1;
     return true;
 #elif defined(__APPLE__)
-    auto *m = new MacAudio;
+    auto m = std::make_unique<MacAudio>(); // review A18: every early return frees it (and its ring)
     m->dev = find_virus(usb_serial_, slot_, open_note_);
-    if (m->dev == kAudioObjectUnknown) {
-        delete m;
+    if (m->dev == kAudioObjectUnknown)
         return false;
-    }
     // the Virus at the wanted rate (44.1 or 48 kHz; the clock master is the synth) - set only when it differs
     const Float64 want = vti_rate_valid((uint32_t)rate);
-    if (nominal_rate(m->dev) != want && !set_nominal_rate(m, want))
+    if (nominal_rate(m->dev) != want && !set_nominal_rate(m.get(), want))
         fprintf(stderr, "audioin: the Virus did not take %.0f Hz (now %.0f)\n", want, nominal_rate(m->dev));
     m->ring = new vti_audio_shm();
     m->ring->magic = VTI_AUDIO_MAGIC, m->ring->version = VTI_AUDIO_VERSION;
     m->ring->rate = nominal_rate(m->dev) == 48000 ? 48000 : 44100;
     m->gaps.set_rate((int)m->ring->rate);
     m->ring->in_ch = VTI_AUDIO_IN_CH, m->ring->out_ch = VTI_AUDIO_OUT_CH, m->ring->ring_frames = VTI_AUDIO_RING;
-    OSStatus st = AudioDeviceCreateIOProcID(m->dev, io_proc, m, &m->proc);
+    OSStatus st = AudioDeviceCreateIOProcID(m->dev, io_proc, m.get(), &m->proc);
     const bool created = st == noErr;
     if (created)
         st = AudioDeviceStart(m->dev, m->proc);
@@ -370,19 +381,17 @@ bool AudioIn::open(const char *linux_name, int rate)
         open_note_ += std::string(created ? "; start failed (" : "; IOProc not created (") + std::to_string((int)st) + ")";
         if (m->proc)
             AudioDeviceDestroyIOProcID(m->dev, m->proc);
-        delete m->ring;
-        delete m;
         return false;
     }
     m->ring->streaming = 1;
     {
         std::lock_guard<std::mutex> g(g_mac_mx);
         m->id = g_mac_next++;
-        g_macs[m->id] = m;
+        g_macs[m->id] = m.get();
     }
     AudioObjectAddPropertyListener(m->dev, &kRateAddr, rate_listener, (void *)m->id);
-    mac_ = m;
     map_ = m->ring;
+    mac_ = m.release(); // close() deletes it
     pos_ = -1;
     return true;
 #elif !defined(__linux__)
@@ -410,8 +419,7 @@ void AudioIn::close()
         }
         AudioDeviceStop(m->dev, m->proc);
         AudioDeviceDestroyIOProcID(m->dev, m->proc);
-        delete m->ring;
-        delete m;
+        delete m; // and its ring
         mac_ = nullptr;
     }
 #endif
@@ -433,7 +441,7 @@ int64_t AudioIn::newest_frame() const { return streaming() ? load_acquire(&shm_-
 
 int AudioIn::rate() const
 {
-    const uint32_t r = shm_ ? shm_->rate : 0;
+    const uint32_t r = shm_ ? load_acquire(&shm_->rate) : 0; // another thread switches it (review A19)
     return r == 48000 ? 48000 : 44100;
 }
 
@@ -442,7 +450,7 @@ int AudioIn::request_rate(int rate)
 #ifdef __APPLE__
     auto *m = (MacAudio *)mac_;
     const uint32_t want = vti_rate_valid((uint32_t)rate);
-    if (!m || m->ring->rate == want || !vti_rate_may_switch(&m->guard, now_ms()))
+    if (!m || load_acquire(&m->ring->rate) == want || !vti_rate_may_switch(&m->guard, now_ms()))
         return this->rate();
     switch_rate(m, want);
 #else
@@ -458,8 +466,9 @@ int AudioIn::check_rate(uint32_t now, uint32_t &to)
     auto *m = (MacAudio *)mac_;
     if (!m)
         return VTI_RELOCK_NONE;
-    const bool lost = m->meter.other_rate(newest_frame(), now, (int)m->ring->rate);
-    const int step = vti_relock_step(&m->relock, lost, m->ring->rate, now, &to);
+    const uint32_t rate = load_acquire(&m->ring->rate);
+    const bool lost = m->meter.other_rate(newest_frame(), now, (int)rate);
+    const int step = vti_relock_step(&m->relock, lost, rate, now, &to);
     if (step == VTI_RELOCK_AWAY || step == VTI_RELOCK_BACK)
         switch_rate(m, to); // a real switch: the same rate again would change nothing (E331)
     return step;
@@ -504,7 +513,7 @@ void AudioIn::read_at(float *l1, float *r1, float *l2, float *r2, int n, int64_t
     const bool third = l3 && r3;
     for (int i = 0; i < n; i++) {
         int64_t f = pos + i;
-        if (newest < 0 || f >= newest || f < newest - VTI_AUDIO_RING + 1024) {
+        if (!in_ring(f, newest)) {
             l1[i] = r1[i] = l2[i] = r2[i] = 0;
             if (third)
                 l3[i] = r3[i] = 0;
@@ -581,7 +590,7 @@ void AudioIn::read_raw_at(int16_t *dst, int n, int64_t pos) const
     int64_t newest = newest_frame();
     for (int i = 0; i < n; i++) {
         int64_t f = pos + i;
-        if (!map_ || newest < 0 || f >= newest || f < newest - VTI_AUDIO_RING + 1024 || f < 0)
+        if (!map_ || !in_ring(f, newest))
             memset(dst + i * VTI_AUDIO_IN_CH, 0, VTI_AUDIO_IN_CH * sizeof(int16_t));
         else
             memcpy(dst + i * VTI_AUDIO_IN_CH, shm_->in + (f & (VTI_AUDIO_RING - 1)) * VTI_AUDIO_IN_CH,
