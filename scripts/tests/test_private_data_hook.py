@@ -69,7 +69,7 @@ class Rules(Base):
         self.assertIn("/home/alice", r.stderr)
 
     def test_placeholder_homes_pass(self):
-        self.assertEqual(self.staged("/home/runner/work /home/user/x /home/u/.local ~/x $HOME/x /home/<you>\n")
+        self.assertEqual(self.staged("/home/runner/work /home/user/x /home/u/.local /home/x C:/Users/x ~/x $HOME/x /home/<you>\n")
                          .returncode, 0)
 
     def test_mac_and_windows_homes_block(self):

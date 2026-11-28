@@ -32,7 +32,7 @@ ZERO = "0" * 40
 # The hook's own source and its test fixtures contain example paths and addresses on purpose.
 EXEMPT_FILES = {".claude/hooks/private-data.py", "scripts/tests/test_private_data_hook.py"}
 
-PLACEHOLDER_USERS = {"runner", "user", "u", "you", "me", "name", "username", "shared", "public", "default",
+PLACEHOLDER_USERS = {"runner", "user", "u", "x", "you", "me", "name", "username", "shared", "public", "default",
                      "example"}
 NOT_EMAIL_TLDS = {"png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "pdf"}
 # the project identity, GitHub's and the AI co-author trailer's noreply addresses and placeholders; anchored, so
