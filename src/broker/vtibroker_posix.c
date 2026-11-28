@@ -648,14 +648,15 @@ static int shm_create(void)
     }
     if (m == MAP_FAILED)
         return -1;
-    g_shm = m;
-    memset(g_shm, 0, sizeof *g_shm);
-    g_shm->magic = VTI_AUDIO_MAGIC;
-    g_shm->version = VTI_AUDIO_VERSION;
-    g_shm->rate = VLA_RATE;
-    g_shm->in_ch = VTI_AUDIO_IN_CH;
-    g_shm->out_ch = VTI_AUDIO_OUT_CH;
-    g_shm->ring_frames = VTI_AUDIO_RING;
+    vti_audio_shm *sh = m; // filled before g_shm publishes it: other threads test g_shm without a lock (review A9)
+    memset(sh, 0, sizeof *sh);
+    sh->magic = VTI_AUDIO_MAGIC;
+    sh->version = VTI_AUDIO_VERSION;
+    sh->rate = VLA_RATE;
+    sh->in_ch = VTI_AUDIO_IN_CH;
+    sh->out_ch = VTI_AUDIO_OUT_CH;
+    sh->ring_frames = VTI_AUDIO_RING;
+    __atomic_store_n(&g_shm, sh, __ATOMIC_RELEASE);
     return 0;
 }
 
