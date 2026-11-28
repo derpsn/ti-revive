@@ -92,11 +92,17 @@ bool AccessFiles::load_pe(const std::string &dll, std::string &error, const char
         }
         return s;
     };
+    // a damaged tree must not make the walk run away (review B10): no more entries than the file can hold, and at
+    // most 2^20 in all (the real DLL has a few hundred; entries can point back at their own directory)
+    size_t budget = size_t{1} << 20;
     auto entries = [&](size_t dir) {
         std::vector<std::pair<uint32_t, uint32_t>> v;
         uint16_t named = 0, ids = 0;
         rd(d, dir + 12, named), rd(d, dir + 14, ids);
-        for (int i = 0; i < named + ids; i++) {
+        const size_t fit = dir + 16 <= d.size() ? (d.size() - dir - 16) / 8 : 0;
+        const size_t n = std::min({(size_t)named + ids, fit, budget});
+        budget -= n;
+        for (size_t i = 0; i < n; i++) {
             uint32_t nm = 0, ent = 0;
             rd(d, dir + 16 + 8u * i, nm), rd(d, dir + 20 + 8u * i, ent);
             v.push_back({nm, ent});

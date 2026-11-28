@@ -4,6 +4,7 @@
 #ifndef _WIN32
 #include "check.h"
 #include "access/accessfiles.h"
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -346,6 +347,44 @@ TEST(accessfiles_pe_errors)
     write(t.dir / "other.dll", fake_pe({{"SOMETHING.XML", "<x/>"}}));
     CHECK(fails(t.dir / "other.dll", "does not contain"));
     CHECK(fails(t.dir / "missing.dll", "cannot read"));
+}
+
+// review B10: a damaged resource tree cannot make the walk run for minutes. Here the "XML" type directory claims
+// 131070 entries that all point back to itself, as a name and as a language directory: before, 131070 x 131070
+// entries were read
+TEST(accessfiles_pe_resource_walk_bounded)
+{
+    const uint32_t pe = 0x40, optsz = 240, sec_raw = 0x400, sec_va = 0x1000, t = 32, n = 0xFFFF * 2;
+    Bytes rs(t + 16 + 8 * n, 0);
+    auto put16 = [&](Bytes &b, size_t o, uint16_t v) { b[o] = v & 0xFF, b[o + 1] = v >> 8; };
+    auto put32 = [&](Bytes &b, size_t o, uint32_t v) {
+        for (int i = 0; i < 4; i++)
+            b[o + i] = (v >> (8 * i)) & 0xFF;
+    };
+    put16(rs, 12, 1);                                  // root: one named type
+    put32(rs, 16, 0x80000000u | 24), put32(rs, 20, 0x80000000u | t);
+    put16(rs, 24, 3), put16(rs, 26, 'X'), put16(rs, 28, 'M'), put16(rs, 30, 'L');
+    put16(rs, t + 12, 0xFFFF), put16(rs, t + 14, 0xFFFF);
+    for (uint32_t i = 0; i < n; i++)
+        put32(rs, t + 16 + 8 * i, 0x80000000u | 24), put32(rs, t + 20 + 8 * i, 0x80000000u | t);
+    Bytes d(sec_raw + rs.size(), 0);
+    d[0] = 'M', d[1] = 'Z';
+    put32(d, 0x3c, pe);
+    memcpy(d.data() + pe, "PE\0\0", 4);
+    put16(d, pe + 4, 0x8664), put16(d, pe + 6, 1), put16(d, pe + 20, optsz), put16(d, pe + 24, 0x20b);
+    put32(d, pe + 24 + 112 + 16, sec_va), put32(d, pe + 24 + 112 + 20, (uint32_t)rs.size());
+    const size_t sh = pe + 24 + optsz;
+    put32(d, sh + 8, (uint32_t)rs.size()), put32(d, sh + 12, sec_va), put32(d, sh + 16, (uint32_t)rs.size());
+    put32(d, sh + 20, sec_raw);
+    memcpy(d.data() + sec_raw, rs.data(), rs.size());
+    TempDir td("peloop");
+    write(td.dir / "loop.dll", d);
+    Env env;
+    no_installation(env, td.dir / "home");
+    std::string err;
+    const auto t0 = std::chrono::steady_clock::now();
+    CHECK(!AccessFiles::open((td.dir / "loop.dll").string(), err));
+    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(5));
 }
 
 TEST(accessfiles_open_nothing)
