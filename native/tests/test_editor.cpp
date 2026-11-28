@@ -1239,3 +1239,17 @@ TEST(editor_snow_midi_indicator_meter)
     auto ti = g.r->meter_rects();
     CHECK(ti.size() == 1 && ti[0] == (std::array<int, 5>{2, 5, 35, 50, 6}));
 }
+
+// review B19: one test for the four filter response displays (was spelled out at six places)
+TEST(editor_is_filter_display)
+{
+    Element e;
+    for (const char *t : {"LP4Response", "HP4Response", "BP4Response", "BS4Response"}) {
+        e.type = t;
+        CHECK(EditorRenderer::is_filter_display(e));
+    }
+    for (const char *t : {"ADSTREnvelope", "Response", "LP4Responses", "VelocityResp"}) {
+        e.type = t;
+        CHECK(!EditorRenderer::is_filter_display(e));
+    }
+}

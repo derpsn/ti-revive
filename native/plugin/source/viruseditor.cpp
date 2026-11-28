@@ -1580,7 +1580,7 @@ public:
         // filter / envelope displays: drag a handle or a line segment like the original's KEnvelope (E371, E372) -
         // relative, the handle stays under the mouse, Shift = 4x finer; Ctrl+click puts the grabbed parameters back
         // to the middle (resonance to 0)
-        if (e.type == "ADSTREnvelope" || (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0)) {
+        if (e.type == "ADSTREnvelope" || EditorRenderer::is_filter_display(e)) {
             const auto hs = renderer_.graph_grabs(e, h.x, h.y, h.part);
             graph_handle_ = renderer_.graph_grab(e, h.x, h.y, h.part, (int)event.mousePosition.x,
                                                  (int)event.mousePosition.y);
@@ -2251,7 +2251,7 @@ private:
     // with the knob around them)
     static std::string help_key(const Element &e)
     {
-        if (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0)
+        if (EditorRenderer::is_filter_display(e))
             return "VirusControl/Filter Display";
         if (e.type == "ADSTREnvelope")
             return "VirusControl/Envelope Display";

@@ -297,7 +297,7 @@ std::vector<EditorRenderer::GraphHandle> EditorRenderer::graph_handles(const Ele
                 {q.x4, q.yt, "", g + "Sustain Time"},
                 {q.x5, q.bottom, g + "Release", ""}};
     }
-    if (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0) {
+    if (is_filter_display(e)) {
         const FilterGeom q = filter_geom(e, x, y, part);
         // the band stop has no vertical handle (E371); the cutoff may be "Offset for FilterLink" as bound
         return {{q.hx, q.hy, p, e.type == "BS4Response" ? "" : g + "Resonance"}};
@@ -734,15 +734,17 @@ void EditorRenderer::draw(Canvas &c, const Element &e, int ox, int oy, int inher
 
     if (e.type == "PatchBrowser")
         browser_numbers(c, e, x, y);
-    void *normal = c.image(e.get("NormalBack"));
-    // inactive controls with a DisabledBack strip use it at full opacity (the translucent "_Trs" look)
-    bool use_disabled = alpha < 1.0 && normal && c.image(e.get("DisabledBack"));
-    if (use_disabled) {
-        normal = c.image(e.get("DisabledBack"));
+    // the picture, chosen once (review B19: the bitmap and the name for its tiling were chosen apart and disagreed
+    // for a pressed inactive control): inactive controls with a DisabledBack strip use it at full opacity (the
+    // translucent "_Trs" look), a pressed control its PressedBack
+    const std::string *back = &e.get("NormalBack");
+    if (alpha < 1.0 && c.image(*back) && c.image(e.get("DisabledBack"))) {
+        back = &e.get("DisabledBack");
         alpha = 1.0;
     }
     if (&e == pressed && c.image(e.get("PressedBack")))
-        normal = c.image(e.get("PressedBack"));
+        back = &e.get("PressedBack");
+    void *normal = c.image(*back);
     if (normal && e.w > 0 && e.h > 0) {
         int frames = std::max(1, c.image_height(normal) / e.h), index = 0;
         if (e.type == "VUSlider") { // MIDI activity of the part's channel (level strip) + volume handle
@@ -761,20 +763,17 @@ void EditorRenderer::draw(Canvas &c, const Element &e, int ox, int oy, int inher
                 index = frames >= 2 && v == atoi(e.get("OnValue").c_str()) ? 1 : 0;
             else if (e.type == "Button" || e.type == "KickButton" || e.type == "DblClkButton") // section headers:
                 index = frames >= 2 && v ? 1 : 0; // frame 1 = locked (red, E378)
-            const std::string &nm = use_disabled ? e.get("DisabledBack")
-                                    : (&e == pressed && c.image(e.get("PressedBack"))) ? e.get("PressedBack")
-                                                                                       : e.get("NormalBack");
-            image(c, nm, normal, index * std::min(e.h, c.image_height(normal)), std::min(e.h, c.image_height(normal)), x, y,
+            image(c, *back, normal, index * std::min(e.h, c.image_height(normal)), std::min(e.h, c.image_height(normal)), x, y,
                   e.w, e.h, alpha);
         }
     } else if (e.get("Transparent") == "false" && e.back.a)
         c.fill(x, y, e.w, e.h, e.back);
 
-    bool display = (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0) || e.type == "OscClassicShape" ||
+    bool display = is_filter_display(e) || e.type == "OscClassicShape" ||
                    e.type == "OscHypersawShape" || e.type == "ArpEdit" || e.type == "ADSTREnvelope";
     if (display)
         c.push_clip(x, y, e.w, e.h);
-    if (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0 && !param.empty())
+    if (is_filter_display(e) && !param.empty())
         filter_response(c, e, x, y, pt);
     if (e.type == "OscClassicShape" && !param.empty())
         osc_classic(c, e, x, y, pt);
@@ -849,7 +848,7 @@ bool EditorRenderer::hit(const Element &e, int ox, int oy, int inherited, int px
     int x = ox + e.x, y = oy + e.y;
     bool inside = px >= x && px < x + e.w && py >= y && py < y + e.h;
     if (slack < 0) // graph_hit_test: only the filter / envelope displays
-        inside = inside && (e.type == "ADSTREnvelope" || (e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0));
+        inside = inside && (e.type == "ADSTREnvelope" || is_filter_display(e));
     if (slack > 0) // the second pass: only the small arrow buttons, a few px taller
         inside = (e.type == "IncButton" || e.type == "DecButton") && e.h < 12 && px >= x && px < x + e.w &&
                  py >= y - slack && py < y + e.h + slack;

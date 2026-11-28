@@ -165,6 +165,8 @@ public:
     // the value a control draws for `v`: clamped to the range like the original (Init: Vocoder Bands 127 -> "32"),
     // a mapped list's own value as it is (mod matrix destinations above maxValue, E309)
     int shown_value(const std::string &param, int v) const;
+    // the filter response displays: LP4Response, HP4Response, BP4Response, BS4Response
+    static bool is_filter_display(const Element &e) { return e.type.size() == 11 && e.type.compare(3, 8, "Response") == 0; }
 
 private:
     const EditorLayout &layout_;
