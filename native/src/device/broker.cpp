@@ -56,7 +56,7 @@ static bool io_all(intptr_t fd, void *p, size_t n, bool wr)
     return ok;
 }
 
-// vtibroker.exe like TI Revive's own clients (vticore_pipe.c): $VTI_BROKER, else InstallDir from
+// vtibroker.exe like TI Revive's own clients did: $VTI_BROKER, else InstallDir from
 // HKLM\SOFTWARE\TI Revive (written by the MSI), else %ProgramW6432%\TI Revive
 static bool broker_path(std::wstring &path)
 {

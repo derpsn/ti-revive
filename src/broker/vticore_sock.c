@@ -1,7 +1,7 @@
 // vticore_sock.c - client backend of vticore.h for the Windows wrapper running under Wine on Linux
 // (findings/design-linux.md, L2): talks to the NATIVE Linux vtibroker over its Unix domain socket
 // (/tmp/vtibroker-<uid>.sock, if this Wine's Winsock has AF_UNIX) or its token-protected TCP listener on 127.0.0.1
-// (Wine 10 as packaged by Ubuntu has no AF_UNIX, E117), with the same messages as vticore_pipe.c.
+// (Wine 10 as packaged by Ubuntu has no AF_UNIX, E117), with the same messages as the broker's pipe on Windows.
 // Broker audio (protocol 3): the broker's POSIX shared memory /dev/shm/tirevive-audio-<uid> is exposed to vtiaudio.c under the usual name VTI_AUDIO_SHM_NAME (a Windows file
 // mapping of that file is a MAP_SHARED mapping in Wine), and every VTIMSG_AUDIO_TICK sets the client's event, so
 // vtiaudio.c follows the ring exactly as on Windows.

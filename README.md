@@ -770,12 +770,11 @@ workflow (job `native-linux`). Details: [`native/README.md`](native/README.md).
 
 ```sh
 make -C src/broker      # vtibroker.exe + test tools (vtiprobe, vtisend, vtiflash), Linux broker / libusb probe
-make -C src/wrapper     # the classic 0.7.x Windows plug-in (not shipped since 0.8.0)
+make -C src/wrapper     # the 0.7.x wrapper for the original under Wine + the test host vtihost (measurements only)
 make -C src/vtihook     # research tools: IOCTL tracer, injector
 ```
 
-The MSI is built with WiX 5 on Windows (`src/installer/build.ps1 -NativeBin <folder>`); `scripts/win11/build-msi.sh`
-does the same round trip through a local Windows 11 build VM.
+The MSI is built with WiX 5 on Windows (`src/installer/build.ps1 -NativeBin <folder>`).
 
 **macOS package.** On a Mac with the Xcode Command Line Tools and the (MIT-licensed) VST3 `pluginterfaces` next to the
 repository: `scripts/mac-build-release.sh <repo> <version>` builds `TI-Revive-<version>-mac.zip` (native plug-in,

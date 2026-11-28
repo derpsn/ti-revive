@@ -1,4 +1,4 @@
-// (from TI Revive src/wrapper/vtiasiohost.c, same author, MIT)
+// (from TI Revive's 0.7.x vtiasiohost.c, same author, MIT)
 // asiohost.c - minimal ASIO host to test an ASIO driver without a DAW: loads it by CLSID, prints its name,
 // channels, latencies, buffer sizes and sample rate, creates buffers for every channel, runs N seconds and reports
 // buffer switches per second, sample position progress and the input peak per channel.

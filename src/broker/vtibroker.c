@@ -38,7 +38,7 @@
 #include <string.h>
 
 #define MAX_CLIENTS 16
-#define IDLE_EXIT_MS 30000 // exit when no client has been connected for this long (started on demand, vticore_pipe.c)
+#define IDLE_EXIT_MS 30000 // exit when no client has been connected for this long (started on demand by its clients)
 
 static HANDLE g_log = INVALID_HANDLE_VALUE;
 static int g_verbose;

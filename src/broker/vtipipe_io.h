@@ -1,5 +1,5 @@
-// vtipipe_io.h - blocking read/write helpers on an OVERLAPPED pipe handle, shared by vtibroker.c and
-// vticore_pipe.c. Both sides read on one thread and write from others: on a handle opened without
+// vtipipe_io.h - blocking read/write helpers on an OVERLAPPED pipe handle, used by vtibroker.c. It reads on one
+// thread and writes from others: on a handle opened without
 // FILE_FLAG_OVERLAPPED Windows serializes the I/O, so a pending ReadFile blocks every WriteFile on the same
 // handle (first broker test deadlocked, E047). With overlapped handles they run concurrently.
 #pragma once

@@ -16,7 +16,7 @@
   {"why": "tests and test/research tools: not shipped",
    "paths": ["native/tests/*", "native/tools/*", "scripts/tests/*", "scripts/checklists/*", "scripts/*.py",
              "scripts/capture.sh", "scripts/ts.sh", "scripts/mac.sh", "scripts/mac-recon.sh", "scripts/mac-install-poc.sh",
-             "scripts/vm.sh", "scripts/vm-start-cc.cmd", "scripts/vm-winusb-install.ps1", "scripts/win11/*", "scripts/win10ref/*",
+             "scripts/vm.sh", "scripts/vm-winusb-install.ps1", "scripts/win11/*", "scripts/win10ref/*",
              "scripts/virus.xml", "scripts/linux-usb-bounce.sh", "scripts/giveback-loop.sh", "scripts/hil.sh", "scripts/reaper-open.sh", "scripts/reaper-projcompat/*", "scripts/hil-win.ps1", "scripts/hil-win.cmd",
              "scripts/hil-mac.command", "scripts/mac-libusb-test.command", "scripts/mutation.sh", "scripts/latency-orig.sh", "scripts/latency-native.sh", "scripts/latency-wine.sh",
              ".github/workflows/dev-mac.yml"],
@@ -59,7 +59,7 @@
    "paths": ["native/src/cc/*", "native/ccapp/*"], "class": "B", "platforms": ["linux", "windows", "mac"], "core": []},
 
   {"why": "broker: platform USB layers (Windows: WinUSB device access and audio streaming)",
-   "paths": ["src/broker/vticore_winusb.c", "src/broker/vticore_pipe.c", "src/broker/vtibroker.c", "src/broker/vtipipe_io.h",
+   "paths": ["src/broker/vticore_winusb.c", "src/broker/vtibroker.c", "src/broker/vtipipe_io.h",
              "src/broker/vtiusbaudio.c", "src/broker/vtiusbaudio.h"],
    "class": "C", "platforms": ["windows"], "core": ["cold", "reopen", "power", "sleep"]},
   {"why": "broker: platform USB layers",
