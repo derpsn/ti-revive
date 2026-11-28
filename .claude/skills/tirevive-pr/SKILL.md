@@ -21,7 +21,6 @@ Work through the steps in order and report the result of each one to the human.
   build-native && ctest --test-dir build-native` (needs the submodule `native/external/vst3sdk`); Windows needs
   MSVC, macOS Xcode.
 - `src/broker/`: `make -C src/broker` (mingw-w64 for Windows, libusb on Linux/macOS).
-- `src/mac/`: on a Mac, `scripts/mac-build-bridge.sh <repo> --install`.
 - `src/wrapper/`: 0.7.x reference code, not shipped since 0.8.0; build it (`make -C src/wrapper`) only if the change
   touches it.
 - Installer scripts: run their syntax check (`bash -n`, PowerShell parser) at least.

@@ -38,7 +38,6 @@
 #include <time.h>
 #include <unistd.h>
 #ifdef __APPLE__
-#include "vtimidi_mac.h"
 #include <launch.h>
 #endif
 // The Virus keys and its DIN MIDI In as MIDI sources for the DAW (vtikeyport.h): CoreMIDI on macOS, the ALSA
@@ -549,10 +548,6 @@ static void on_rx(void *user, uint8_t ep, const uint8_t *data, int len)
         if (v >= 0)
             blog("usbaudio: the Virus reports System Clock/Frequency = %s", v ? "48 kHz" : "44.1 kHz");
     }
-#ifdef __APPLE__
-    if (ep == VTI_EP_MI04_IN)
-        vtimidi_rx(data, len);
-#endif
     vti_keyport_filter(ep, data, (int)len, keyport_out, NULL); // the Virus keys to the DAW (#29)
     vti_dinport_filter(ep, data, (int)len, dinport_out, NULL); // its DIN MIDI In to the DAW (E517)
     pthread_mutex_lock(&g_cs_clients); // the owner and every sharing client
@@ -905,26 +900,6 @@ static void tx_lock(const void *c)
     if (g_sxhold.who && g_sxhold.who != c && uptime_ms() - g_sxhold.last < VTI_SX_HOLD_MS)
         blog("a write waited %d s for another client's SysEx to end: sent anyway", VTI_SX_HOLD_MS / 1000);
 }
-
-#ifdef __APPLE__
-// the 0.7.x opt-in path: the same rule-2 filter and SysEx hold as a client's write (review A3); its watch is its identity
-static vti_sxwatch g_mdw_sx; // pump thread
-static int midi_write(const uint8_t *data, int len) // pump thread: plug-in channel packets from the MDW ring
-{
-    if (vti_write_blocked(&g_mdw_sx, data, len)) {
-        blog("refused a MIDI-port write of %d bytes (rule 2)", len);
-        return -1;
-    }
-    tx_lock(&g_mdw_sx);
-    int r = g_dev ? vti_write_keep(g_dev, VTI_EP_MI04_OUT, data, len, keep_tx, NULL) : -1;
-    if (!r)
-        vti_sx_wrote(&g_sxhold, &g_mdw_sx, &g_mdw_sx, uptime_ms());
-    else
-        vti_sx_gone(&g_sxhold, &g_mdw_sx);
-    pthread_mutex_unlock(&g_cs_tx);
-    return r;
-}
-#endif
 
 static int client_count(void)
 {
@@ -1520,16 +1495,6 @@ int main(int argc, char **argv)
     // a test switch; the port is read-only and harmless when nothing listens. Virus 2+: once it is there (below)
     if (!getenv("VTI_NO_MIDI_PORT") && vti_slot == 1)
         vti_keyport_start();
-#ifdef __APPLE__
-    // stand-in for Access' MIDI driver towards the original Virus Control (E100): only the classic path of 0.7.x
-    // (bridge + Rosetta helper, src/mac) used it; the native plug-in talks to the broker directly. Opt-in.
-    if (getenv("VTI_BROKER_MIDISHIM") && atoi(getenv("VTI_BROKER_MIDISHIM")) == 1) {
-        if (vtimidi_start(midi_write))
-            blog("MIDI slot memory could not be created");
-        else
-            blog("MIDI driver stand-in for the original plug-in started (VTI_BROKER_MIDISHIM=1)");
-    }
-#endif
     pthread_t t;
     if (pthread_create(&t, NULL, signal_thread, &sigs) || pthread_detach(t) ||
         pthread_create(&t, NULL, device_thread, NULL) || pthread_detach(t) ||

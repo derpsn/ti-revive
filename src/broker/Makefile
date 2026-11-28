@@ -55,19 +55,18 @@ $(OUT)/vtiaudiotest.exe: vtiaudiotest.c vticore_pipe.c $(SRC_MIDI) $(H)
 	mkdir -p $(OUT)
 	x86_64-w64-mingw32-gcc $(CFLAGS) -o $@ vtiaudiotest.c vticore_pipe.c $(SRC_MIDI) -static -lpthread
 
-# macOS (run on the Mac): native broker (a separate process, so arm64 is fine; only our libVirusUSB.dylib
-# replacement must be x86_64 for the Rosetta DAW); libusb from Homebrew (brew install libusb pkg-config)
-mac: vtibroker_posix.c vtimidi_mac.c vtikeyport_mac.c vticore.c $(SRC_MIDI) vtiusbaudio_libusb.c $(H)
+# macOS (run on the Mac): native broker; libusb from Homebrew (brew install libusb pkg-config)
+mac: vtibroker_posix.c vtikeyport_mac.c vticore.c $(SRC_MIDI) vtiusbaudio_libusb.c $(H)
 	mkdir -p $(OUT)/mac
-	clang $(CFLAGS) $(VDEF) $$(pkg-config --cflags libusb-1.0) -o $(OUT)/mac/vtibroker vtibroker_posix.c vtimidi_mac.c vtikeyport_mac.c vticore.c vtiusbaudio_libusb.c \
+	clang $(CFLAGS) $(VDEF) $$(pkg-config --cflags libusb-1.0) -o $(OUT)/mac/vtibroker vtibroker_posix.c vtikeyport_mac.c vticore.c vtiusbaudio_libusb.c \
 		$(SRC_MIDI) $$(pkg-config --libs libusb-1.0) -lpthread -framework CoreFoundation -framework CoreMIDI
 
 # macOS release: libusb linked statically (users have no Homebrew), universal arm64 + x86_64 for Intel Macs (issue
 # #33); LIBUSB_PREFIX = a universal static libusb (scripts/mac-build-release.sh builds one)
 # universal by default; a Catalina test build (#37) passes MAC_ARCH_FLAGS="-arch x86_64"
 MAC_ARCH_FLAGS ?= -arch arm64 -arch x86_64
-mac-static: vtibroker_posix.c vtimidi_mac.c vtikeyport_mac.c vticore.c $(SRC_MIDI) vtiusbaudio_libusb.c $(H)
+mac-static: vtibroker_posix.c vtikeyport_mac.c vticore.c $(SRC_MIDI) vtiusbaudio_libusb.c $(H)
 	mkdir -p $(OUT)/mac
 	clang $(CFLAGS) $(VDEF) $(MAC_ARCH_FLAGS) -I$(LIBUSB_PREFIX)/include/libusb-1.0 -o $(OUT)/mac/vtibroker vtibroker_posix.c \
-		vtimidi_mac.c vtikeyport_mac.c vticore.c vtiusbaudio_libusb.c $(SRC_MIDI) $(LIBUSB_PREFIX)/lib/libusb-1.0.a -lpthread -framework CoreFoundation \
+		vtikeyport_mac.c vticore.c vtiusbaudio_libusb.c $(SRC_MIDI) $(LIBUSB_PREFIX)/lib/libusb-1.0.a -lpthread -framework CoreFoundation \
 		-framework IOKit -framework Security -framework CoreMIDI
