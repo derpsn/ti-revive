@@ -3733,7 +3733,7 @@ std::vector<KnobTemplate> VirusPlugin::knob_templates()
 {
     std::lock_guard<std::mutex> lk(remote_mu_);
     if (!knob_templates_read_ && files_) {
-        knob_templates_ = files_->knob_templates(); // ~30 ms: only when the menu opens the first time
+        knob_templates_ = files_->knob_templates(); // a copy of what initialize() found with the init patches
         knob_templates_read_ = true;
     }
     return knob_templates_;

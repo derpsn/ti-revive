@@ -353,9 +353,9 @@ std::vector<KnobTemplate> find_knob_templates(const std::vector<uint8_t> &bin)
     return {};
 }
 
-std::vector<KnobTemplate> AccessFiles::knob_templates() const { return find_knob_templates(binary()); }
+std::vector<KnobTemplate> AccessFiles::knob_templates() const { return embedded().knobs; }
 
-std::vector<float> AccessFiles::osc_waves() const { return find_osc_waves(binary()); }
+std::vector<float> AccessFiles::osc_waves() const { return embedded().waves; }
 
 std::vector<uint8_t> AccessFiles::init_single() const { return embedded().init_single; }
 
@@ -365,10 +365,12 @@ const std::vector<uint8_t> &AccessFiles::default_page_b() const { return embedde
 
 const AccessFiles::Embedded &AccessFiles::embedded() const
 {
-    // the search reads the whole plug-in binary (~15 MB): once per AccessFiles for all three, not before every RAM
-    // write (audit #18) or once per item (review M8)
+    // the search reads the whole plug-in binary (~15 MB, ~30 ms): once per AccessFiles for all of them, not before
+    // every RAM write (audit #18), once per item (review M8) or per search (review B13; waves + knobs take ~7 ms)
     std::call_once(embedded_once_, [this] {
         const std::vector<uint8_t> bin = binary();
+        embedded_.knobs = find_knob_templates(bin);
+        embedded_.waves = find_osc_waves(bin);
         const size_t multi = find_dump(bin, 0x11, 267, 13, "MultiCtrl!"), off = find_dump(bin, 0x10, 524, 249, " -Init-");
         if (multi != std::string::npos)
             embedded_.init_multi.assign(bin.begin() + multi, bin.begin() + multi + 267);

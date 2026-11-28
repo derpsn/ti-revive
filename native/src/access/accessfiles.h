@@ -63,6 +63,8 @@ private:
     std::vector<uint8_t> binary() const; // the plug-in binary (~15 MB, read on each call); empty if missing
     struct Embedded {
         std::vector<uint8_t> init_single, init_multi, page_b;
+        std::vector<float> waves;
+        std::vector<KnobTemplate> knobs;
     };
     const Embedded &embedded() const; // found in one read of binary() at the first call, then kept
     mutable std::once_flag embedded_once_; // called from several threads

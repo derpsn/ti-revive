@@ -526,6 +526,12 @@ TEST(accessfiles_osc_waves_mac_bundle)
     // a bundle without the table: no waves (the display falls back to the sine)
     write(bundle / "Contents" / "MacOS" / "Virus Control", Bytes(0x2000, 0x5A));
     CHECK(AccessFiles::open("", err)->osc_waves().empty());
+    // review B13: one read of the binary serves all searches (init patches, waves, knob templates)
+    write(bundle / "Contents" / "MacOS" / "Virus Control", waves_blob(0x1234, 0.5f));
+    auto b = AccessFiles::open("", err);
+    CHECK(b && b->init_single().empty()); // the first search reads the binary
+    fs::remove(bundle / "Contents" / "MacOS" / "Virus Control");
+    CHECK(b && b->osc_waves().size() == 64 * 64 && b->knob_templates().empty());
 }
 
 namespace {
