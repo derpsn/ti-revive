@@ -93,3 +93,23 @@ class InstallFlow(unittest.TestCase):
         shutil.copy(os.path.join(SRC, "70-tirevive-virus-ti.rules"), self.rule)
         self.sh("install.sh", "Virus TI Software Suite 5.1.7.00 64-bit.msi")
         self.assertNotIn("sudo install", self.calls())
+
+    # audit 14: install then uninstall leaves nothing of TI Revive, and the patch libraries stay
+    def test_install_then_uninstall_leaves_nothing(self):
+        with open(self.rule, "w") as f:
+            f.write("# an older rule\n")
+        out = self.sh("install.sh", "Virus TI Software Suite 5.1.7.00 64-bit.msi")
+        self.assertIn("set up in", out)
+        lib = "Documents/Access Music/Virus TI/Patches/Factory.mdb"
+        installed = self.files()
+        for f in (".local/lib/tirevive/vtibroker", ".vst3/TI Revive.vst3", ".config/tirevive/access-dir",
+                  ".config/systemd/user/tirevive-broker@.socket", lib,
+                  ".local/share/tirevive/access/Access Music/Virus TI/Common/Virus Control.dll"):
+            self.assertIn(f, installed)
+        open(self.rule, "w").close()  # what sudo install would have left in /etc
+        self.sh("uninstall.sh")
+        left = [f for f in self.files() if "tirevive" in f.lower() or "ti revive" in f.lower()]
+        self.assertEqual(left, [])
+        self.assertIn(lib, self.files())
+        self.assertIn(f"sudo rm -f {self.rule}", self.calls())
+        self.assertIn("systemctl --user disable --now tirevive-broker.socket", self.calls())
