@@ -71,7 +71,7 @@ access_src() { # $1 = unpacked .msi -> its .../Access Music/Virus TI folder, emp
 [ "$(id -u)" -ne 0 ] || die "run install.sh as your normal user, not as root (it asks for sudo when needed)"
 
 # --- 1. USB access (udev) ------------------------------------------------------------------------------------------
-RULE=/etc/udev/rules.d/70-tirevive-virus-ti.rules
+RULE=${TIREVIVE_UDEV_RULE:-/etc/udev/rules.d/70-tirevive-virus-ti.rules} # the variable: tests only
 virus_accessible() { # a plugged-in Virus whose device node we may already open (rule present or other setup)
     for d in /sys/bus/usb/devices/*; do
         [ "$(cat "$d/idVendor" 2>/dev/null)" = 133e ] && [ "$(cat "$d/idProduct" 2>/dev/null)" = 0815 ] || continue
@@ -80,7 +80,9 @@ virus_accessible() { # a plugged-in Virus whose device node we may already open 
     done
     return 1
 }
-if ! cmp -s "$HERE/udev/70-tirevive-virus-ti.rules" "$RULE" 2>/dev/null && ! virus_accessible; then
+# an installed rule that differs is always replaced (an older one may lack what this version needs); without one,
+# a Virus we may already open (another setup) needs none
+if ! cmp -s "$HERE/udev/70-tirevive-virus-ti.rules" "$RULE" 2>/dev/null && { [ -e "$RULE" ] || ! virus_accessible; }; then
     say "USB access for the Virus TI (udev rule, needs sudo)"
     sudo install -m 0644 "$HERE/udev/70-tirevive-virus-ti.rules" "$RULE"
     sudo udevadm control --reload
