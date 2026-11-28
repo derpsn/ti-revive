@@ -4780,6 +4780,8 @@ bool VirusPlugin::download_bank(int bank)
     if (bank < 0 || bank > 3 || !sync_ || !out_ || !out_->connected())
         return false;
     std::lock_guard<std::mutex> g(download_mu_);
+    if (stop_warm_) // closing: shutdown() has joined (or is about to join) the thread under this lock (review B33)
+        return false;
     if (syncing_.load()) // under the lock: a bank check starts under it too (start_bank_check)
         return false;
     if (downloading_.exchange(true)) { // a download or a RAM write runs (one at a time)
