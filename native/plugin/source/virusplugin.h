@@ -435,6 +435,7 @@ public:
 
     Steinberg::tresult PLUGIN_API initialize(Steinberg::FUnknown *context) override;
     Steinberg::tresult PLUGIN_API terminate() override;
+    ~VirusPlugin() override;
     Steinberg::tresult PLUGIN_API setActive(Steinberg::TBool state) override;
     Steinberg::tresult PLUGIN_API setupProcessing(Steinberg::Vst::ProcessSetup &setup) override;
     // the Sidechain input: which buses the host activates (some hosts then pass only those), stereo only like the
@@ -733,6 +734,7 @@ public:
     REFCOUNT_METHODS(SingleComponentEffect)
 
 private:
+    void shutdown(); // terminate() and the destructor: threads, timers and the worker stop (idempotent)
     struct Mapped {
         std::string path;
         int part = 0; // 0-based

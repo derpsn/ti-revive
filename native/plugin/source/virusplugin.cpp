@@ -1701,6 +1701,19 @@ std::vector<std::vector<uint8_t>> VirusPlugin::startup_messages() const
 
 tresult PLUGIN_API VirusPlugin::terminate()
 {
+    gestures_.flush([this](uint32_t id) { endEdit(id); });
+    note_probe_flush();
+    shutdown();
+    return SingleComponentEffect::terminate();
+}
+
+// A host that destroys the plug-in without terminate() (or after a failed initialize()) would destroy joinable
+// threads (std::terminate) and a running worker (review B28)
+VirusPlugin::~VirusPlugin() { shutdown(); }
+
+// the threads and the worker stop; idempotent: terminate() and the destructor both call it
+void VirusPlugin::shutdown()
+{
     if (gesture_timer_) { // before anything it calls goes away
         gesture_timer_->stop();
         gesture_timer_ = nullptr;
@@ -1712,8 +1725,6 @@ tresult PLUGIN_API VirusPlugin::terminate()
         gesture_loop_ = nullptr;
     }
 #endif
-    gestures_.flush([this](uint32_t id) { endEdit(id); });
-    note_probe_flush();
     stop_warm_ = true;
     if (sync_)
         sync_->cancel(); // a request in flight ends now, not after its timeout (review 2026-10-19 M6)
@@ -1738,7 +1749,6 @@ tresult PLUGIN_API VirusPlugin::terminate()
         out_->stop_worker();
     }
     out_.reset();
-    return SingleComponentEffect::terminate();
 }
 
 bool VirusPlugin::panic()
