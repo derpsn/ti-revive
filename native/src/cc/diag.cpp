@@ -28,6 +28,18 @@ std::string plugin_file(const std::string &name)
 
 std::string plugin_log_path() { return plugin_file("diag.log"); }
 
+std::string local_time(const char *fmt, time_t t, const char *fallback)
+{
+    struct tm tm {};
+#ifdef _WIN32
+    const bool ok = localtime_s(&tm, &t) == 0;
+#else
+    const bool ok = localtime_r(&t, &tm) != nullptr;
+#endif
+    char buf[64];
+    return ok && strftime(buf, sizeof buf, fmt, &tm) > 0 ? std::string(buf) : std::string(fallback);
+}
+
 static bool flag(const char *file)
 {
     std::error_code ec;
@@ -267,9 +279,7 @@ std::string anonymize(const std::string &text)
 bool collect_logs(const std::string &out_path, const std::string &version, std::string &error)
 {
     std::string t = "TI Revive logs\n==============\n";
-    char stamp[32];
-    time_t now = time(nullptr);
-    strftime(stamp, sizeof stamp, "%Y-%m-%d %H:%M:%S", localtime(&now));
+    const std::string stamp = local_time("%Y-%m-%d %H:%M:%S", time(nullptr));
 #if defined(_WIN32)
     const char *os = "Windows";
 #elif defined(__APPLE__)

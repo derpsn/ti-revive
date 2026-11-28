@@ -4984,10 +4984,7 @@ bool VirusPlugin::backup_ram(std::vector<BankDrop::Write> &w, const std::string 
     const std::vector<RamBackup::Patch> lost = RamBackup::to_back_up(w, before);
     if (lost.empty())
         return true;
-    char date[16] = "undated";
-    const time_t now = time(nullptr);
-    if (const struct tm *lt = localtime(&now))
-        strftime(date, sizeof date, "%Y-%m-%d", lt);
+    const std::string date = vti::cc::local_time("%Y-%m-%d", time(nullptr));
     const std::string dir = library_dir();
     std::error_code ec;
     std::filesystem::create_directories(vti::u8path(dir), ec);

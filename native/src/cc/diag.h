@@ -1,6 +1,7 @@
 // diag.h - Control Center "Nerd mode", part 1: TI Revive's logs and debug switches without a terminal.
 // Only local files and the broker's log are touched; nothing is sent to the Virus.
 #pragma once
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -13,6 +14,9 @@ std::string plugin_log_path();
 // `name` in plugin_dir(); empty when there is no plug-in folder (HOME / LOCALAPPDATA not set): never a path relative
 // to the current folder
 std::string plugin_file(const std::string &name);
+// `t` as local time in strftime's `fmt` (localtime_r / localtime_s: localtime's buffer is shared between threads);
+// `fallback` when the time cannot be converted
+std::string local_time(const char *fmt, time_t t, const char *fallback = "undated");
 
 // The plug-in writes diag.log unless diag.off exists (checked when the plug-in starts). On by default since 0.8.41
 // (before, diag.on switched it on; such a file changes nothing now and is removed when the log is switched off).

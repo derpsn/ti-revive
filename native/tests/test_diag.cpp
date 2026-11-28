@@ -4,6 +4,7 @@
 #include "check.h"
 #include "cc/diag.h"
 #include "cc/updatecheck.h"
+#include <climits>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -327,4 +328,13 @@ TEST(updatecheck_result_keeps_what_the_plugin_wrote)
     CHECK(store_update_result(answer));
     const UpdateState now = read_update_state();
     CHECK(now.checked == 1794700000 && now.latest == "0.8.44" && now.seen == "0.8.43");
+}
+
+// review B25: local time through localtime_r / localtime_s (localtime's static buffer is shared between threads),
+// and a time it cannot convert gives the fallback instead of strftime on a null pointer
+TEST(diag_local_time)
+{
+    CHECK(local_time("%Y", 86400 * 365).size() == 4);
+    CHECK(local_time("%Y-%m-%d", (time_t)LLONG_MAX) == "undated");
+    CHECK(local_time("%Y", (time_t)LLONG_MAX, "x") == "x");
 }

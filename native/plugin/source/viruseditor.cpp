@@ -3131,10 +3131,7 @@ private:
         auto *fs = CNewFileSelector::create(getFrame(), CNewFileSelector::kSelectSaveFile);
         if (!fs)
             return;
-        char stamp[32];
-        const time_t now = time(nullptr);
-        strftime(stamp, sizeof stamp, "%Y-%m-%d-%H%M", localtime(&now));
-        const std::string name = std::string("TI-Revive-logs-") + stamp + ".txt";
+        const std::string name = "TI-Revive-logs-" + vti::cc::local_time("%Y-%m-%d-%H%M", time(nullptr)) + ".txt";
         fs->setTitle("Save logs for a bug report");
         fs->setDefaultExtension(CFileExtension("Text", "txt"));
 #if defined(_WIN32) || defined(__APPLE__)

@@ -1,5 +1,6 @@
 // controlcenter.cpp - see controlcenter.h.
 #include "controlcenter.h"
+#include "diag.h"
 #include "model/utf8.h"
 #include "../access/library.h"
 #include "../device/usbmidi.h"
@@ -80,10 +81,7 @@ std::string cache_dir()
 
 static std::string now_stamp()
 {
-    char stamp[32];
-    time_t t = time(nullptr);
-    strftime(stamp, sizeof stamp, "%Y-%m-%d %H%M", localtime(&t));
-    return stamp;
+    return local_time("%Y-%m-%d %H%M", time(nullptr));
 }
 
 std::string default_backup_dir()
