@@ -5818,11 +5818,21 @@ void VirusPlugin::send_state()
 
 tresult PLUGIN_API VirusPlugin::setState(IBStream *state)
 {
+    if (!state)
+        return kInvalidArgument;
+    // a project's state is ~100 KB (16 dumps, ~2000 controller records): far more is no state of ours (review B29)
+    constexpr size_t kMaxState = size_t{16} << 20;
     std::vector<uint8_t> d;
     char buf[4096];
     int32 got = 0;
-    while (state->read(buf, sizeof buf, &got) == kResultOk && got > 0)
+    while (state->read(buf, sizeof buf, &got) == kResultOk && got > 0) {
+        if (d.size() + (size_t)got > kMaxState) {
+            if (out_)
+                out_->log("Virus TI native: setState larger than %zu MB: not read\n", kMaxState >> 20);
+            return kResultFalse;
+        }
         d.insert(d.end(), buf, buf + got);
+    }
     auto recs = parse_container(d);
     if (out_)
         out_->log("Virus TI native: setState %zu bytes, %zu records, part 1 \"%s\"\n", d.size(), recs.size(),
@@ -5901,6 +5911,8 @@ tresult PLUGIN_API VirusPlugin::setState(IBStream *state)
 
 tresult PLUGIN_API VirusPlugin::getState(IBStream *state)
 {
+    if (!state)
+        return kInvalidArgument;
     std::vector<uint8_t> d;
     std::map<int, std::vector<uint8_t>> edited; // parts that compare: the project keeps their edit
     {
@@ -5934,7 +5946,9 @@ tresult PLUGIN_API VirusPlugin::getState(IBStream *state)
             d = build_container(recs);
     }
     int32 done = 0;
-    return state->write(d.data(), (int32)d.size(), &done);
+    // all of it or a failure the host sees (review B29: a short write passed as kResultOk)
+    const tresult r = state->write(d.data(), (int32)d.size(), &done);
+    return r == kResultOk && done == (int32)d.size() ? kResultOk : kResultFalse;
 }
 
 } // namespace vti
