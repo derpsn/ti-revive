@@ -1,5 +1,6 @@
 """Tests for scripts/hil_check.py (pass/fail rules of the automated hardware run scripts/hil.sh)."""
 import os
+import shutil
 import sys
 import unittest
 
@@ -202,6 +203,41 @@ class Folder(unittest.TestCase):
                                ("hil-mac.command", r"\nelse\s*\n(.*\n){0,3}?.*NOT GRADED.*\n(.*\n){0,3}?\s*finish 2")):
             with open(os.path.join(here, runner), encoding="utf-8") as f:
                 self.assertRegex(f.read(), branch, runner)
+
+
+@unittest.skipIf(sys.platform != "linux" or not shutil.which("pgrep"), "hil.sh runs on Linux")
+class HilShBusy(unittest.TestCase):
+    """hil.sh refuses to start while the Control Center owns the broker (audit 2026-11-28 #11)"""
+
+    def pattern(self):
+        import re
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "hil.sh"), encoding="utf-8") as f:
+            return re.search(r"^cc_pattern='([^']+)'", f.read(), re.M).group(1)
+
+    def test_control_center_names_are_seen(self):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            for name in ("TIReviveControlCenter", "tirevive-control-center", "tirevive-cc"):
+                # a stand-in: Python under the Control Center's name (argv[0]; a copied multi-call sleep would refuse)
+                p = subprocess.Popen([os.path.join(d, name), "-c", "import time; time.sleep(30)"],
+                                     executable=sys.executable)
+                try:
+                    r = subprocess.run(["pgrep", "-f", self.pattern()], capture_output=True, text=True)
+                    self.assertIn(str(p.pid), r.stdout.split(), name)
+                finally:
+                    p.kill()
+                    p.wait()
+
+    def test_a_path_in_an_argument_is_not_the_control_center(self):
+        import subprocess
+        p = subprocess.Popen(["sleep", "30", "build-native/ccapp/TIReviveControlCenter"])
+        try:
+            r = subprocess.run(["pgrep", "-f", self.pattern()], capture_output=True, text=True)
+            self.assertNotIn(str(p.pid), r.stdout.split())
+        finally:
+            p.kill()
+            p.wait()
 
 
 if __name__ == "__main__":

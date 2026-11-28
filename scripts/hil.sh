@@ -41,8 +41,11 @@ daw_running() {
     done
     return 1
 }
-if daw_running; then
-    echo "a DAW or nativehost is running: close it first"; exit 2
+# the Control Center is a broker client too (its build name, the installed name, the command-line tool); the whole
+# command line, since a process name is cut at 15 characters; only as the program itself, not as an argument
+cc_pattern='^([^ ]*/)?(TIReviveControlCenter|tirevive-control-center|tirevive-cc)( |$)'
+if daw_running || pgrep -f "$cc_pattern" >/dev/null; then
+    echo "a DAW, the Control Center or nativehost is running: close it first"; exit 2
 fi
 mkdir -p "$out"
 summary="$out/summary.txt"
