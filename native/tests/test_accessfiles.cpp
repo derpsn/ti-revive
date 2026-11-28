@@ -170,6 +170,17 @@ TEST(accessfiles_resource_folder)
     CHECK(a->names().size() == 2 && a->source() == t.dir.string());
     fs::create_directories(t.dir / "empty");
     CHECK(!AccessFiles::open((t.dir / "empty").string(), err) && !err.empty());
+    // review B12: a file it may not read is not listed (an empty remotedevice.xml counted as found before)
+    TempDir u("unreadable");
+    write(u.dir / "remotedevice.xml", REMOTE);
+    write(u.dir / "editor.xml", std::string("<Editor/>"));
+    fs::permissions(u.dir / "remotedevice.xml", fs::perms::none);
+    if (std::ifstream(u.dir / "remotedevice.xml")) { // root reads it anyway
+        fs::permissions(u.dir / "remotedevice.xml", fs::perms::owner_all);
+        return;
+    }
+    CHECK(!AccessFiles::open(u.dir.string(), err));
+    fs::permissions(u.dir / "remotedevice.xml", fs::perms::owner_all);
 }
 
 // E361: the original's device types use their own files - the Snow its 4-part editor (editorPR.xml), its device

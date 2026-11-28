@@ -9,7 +9,6 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -21,15 +20,8 @@ static std::string lower(std::string s)
     return s;
 }
 
-// `path` as UTF-8 (#35)
-static bool read_file(const std::string &path, std::vector<uint8_t> &out)
-{
-    std::ifstream f(u8path(path), std::ios::binary);
-    if (!f)
-        return false;
-    out.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
-    return true;
-}
+// `path` as UTF-8 (#35); at most u8read's cap (512 MB: the Mac universal binary is the largest, ~40 MB)
+static bool read_file(const std::string &path, std::vector<uint8_t> &out) { return u8read(path, out); }
 
 // the part of a PE section that the file holds (review B11): past its raw data the section is uninitialised, past
 // its virtual size the raw data is padding; a virtual size of 0 means the raw size
@@ -151,7 +143,9 @@ bool AccessFiles::load_dir(const std::string &dir, std::string &error, const cha
         std::string ext = lower(u8str(f.extension()));
         if (ext != ".xml" && ext != ".png")
             continue;
-        read_file(u8str(f), files_[lower(u8str(f.filename()))]);
+        std::vector<uint8_t> data;
+        if (read_file(u8str(f), data)) // an unreadable file is not listed (review B12)
+            files_[lower(u8str(f.filename()))] = std::move(data);
     }
     if (!files_.count(required)) {
         error = dir + " does not contain the Virus TI resources";
