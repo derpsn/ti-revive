@@ -676,6 +676,17 @@ void EditorRenderer::render(Canvas &c)
     if (layer == 1)
         static_key.clear();
     ValueFn plain;
+    // `values` is the plain function again on every exit, also an exception (review B16): the recording one
+    // refers to `plain` on this stack
+    struct Restore {
+        ValueFn &values, &plain;
+        bool on;
+        ~Restore()
+        {
+            if (on)
+                values = std::move(plain);
+        }
+    } restore{values, plain, deps != nullptr};
     if (deps) { // record the reads (conditions and drawing helpers all go through `values`)
         plain = values;
         values = [this, &plain](const std::string &path, int pt) {
@@ -686,8 +697,6 @@ void EditorRenderer::render(Canvas &c)
     }
     for (auto &e : layout_.elements)
         draw(c, e, 0, 0, -1);
-    if (deps)
-        values = plain;
 }
 
 void EditorRenderer::draw(Canvas &c, const Element &e, int ox, int oy, int inherited)

@@ -9,6 +9,7 @@
 #include <cmath>
 #include <map>
 #include <memory>
+#include <stdexcept>
 using namespace vti;
 using Bytes = std::vector<uint8_t>;
 
@@ -511,6 +512,32 @@ TEST(editor_dependencies)
     CHECK(deps.rects.count("Filter 1/Resonance")); // read while drawing the filter displays
     // the values function is the plain one again after the render
     CHECK(g.r->values("Osc/Shape", 0) == 64);
+}
+
+// review B16: an exception out of a render with deps (here from the values function) leaves `values` the plain
+// function, not the recording one that points at the gone render's stack
+TEST(editor_dependencies_restored_after_a_throw)
+{
+    Rig g;
+    ValueFn plain = g.r->values;
+    g.r->values = [&](const std::string &path, int pt) {
+        if (path == "Osc/Shape")
+            throw std::runtime_error("read failed");
+        return plain(path, pt);
+    };
+    EditorRenderer::Deps deps;
+    g.r->deps = &deps;
+    bool threw = false;
+    try {
+        g.r->render(g.canvas);
+    } catch (const std::runtime_error &) {
+        threw = true;
+    }
+    g.r->deps = nullptr;
+    CHECK(threw);
+    const size_t before = deps.cond.size() + deps.rects.size();
+    CHECK(g.r->values("Osc/Mode", 0) == 0);
+    CHECK_EQ(deps.cond.size() + deps.rects.size(), before); // no longer recording
 }
 
 TEST(editor_hit_and_rects)
