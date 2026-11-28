@@ -1,8 +1,8 @@
 {
  "round": "0.8.45",
  "core": "core.json",
- "core_items": ["LC4", "WC4", "MC4", "MC5"],
- "lead": "Test of 0.8.45 with the CI test build 0.8.45-rc3 (run 46135708542, tag on f63a7dd8): frame pacing (#37), the Virus' audio found by USB ids on a Mac (#60), and the fixes from the code review and the audit of 2026-11-28 (knob echoes, lost broker connection, SysEx byte checks, Control Center busy gate and CANCEL, installer fixes, Linux socket in /run/user). Already done by Claude: unit tests 1127, hil.sh ALL PASS three times on the TI2 (local build twice, the installed rc3 once, the rc3 run on the new socket path), rc3 installed on Linux (install.sh) and on the win11 VM (MSI /quiet, 8 old driver certificates removed, one left). risk.py: class C on all three systems; by hand: Virus off/on everywhere, sleep on the Mac. Mark each item and add a note where something looks different; Claude reads the marks from this page.",
+ "core_items": ["LC4", "WC4", "MC4"],
+ "lead": "Test of 0.8.45 with the CI test build 0.8.45-rc3 (run 46135708542, tag on f63a7dd8): frame pacing (#37), the Virus' audio found by USB ids on a Mac (#60), and the fixes from the code review and the audit of 2026-11-28 (knob echoes, lost broker connection, SysEx byte checks, Control Center busy gate and CANCEL, installer fixes, Linux socket in /run/user). Already done by Claude: unit tests 1127, hil.sh ALL PASS three times on the TI2 (local build twice, the installed rc3 once, the rc3 run on the new socket path), rc3 installed on Linux (install.sh) and on the win11 VM (MSI /quiet, 8 old driver certificates removed, one left). risk.py: class C on all three systems; by hand: Virus off/on everywhere (the Mac sleep item MC5 dropped by the user, 2026-11-28). Mark each item and add a note where something looks different; Claude reads the marks from this page.",
  "rules": [
   "Order: Linux first (the Virus is there), then the Windows VM, later the Mac. Close the DAW before the Virus moves.",
   "Never power-cycle the Virus while it is attached to the VM without telling Claude first (Claude re-attaches it afterwards).",
