@@ -5,16 +5,17 @@ NEXT. At most 150 lines; the Stop hook (`.claude/hooks/handoff-check.sh`) refuse
 how goes into the dated log [`log/2026-11.md`](log/2026-11.md) (newest first); older logs are in [`log/`](log/).
 Device/protocol knowledge goes into [`evidence.md`](evidence.md). Update this file in the same commit as the work._
 
-Last update: 2026-11-25: rc9 (v0.8.44-rc9 at d255cc1, CI 45626198935 green) = rc8 + E591/E592 lost-answer fixes; release text + What's New updated; posted #51/#48/#37; installed Linux + win11, Mac package pushed (user installs). #48: Virus on a USB3 hub that must stay, answered why reopening helps. #37 design A+B is IMPLEMENTED since rc8 (d6ff162, option 'Clean first notes after Play'), nothing waits on a test review.
+Last update: 2026-11-28: 0.8.45 released (merge 871438d9, tag v0.8.45, user go after the round checklist 10/10); next round on round-0.8.46. Details of the code review (66/67), the audit (20/20) and the test round in log/2026-11.md (2026-11-28 entries).
 
 ## Where things stand
 
-- **0.8.43 Latest** since 2026-11-21 11:45 UTC (release CI 44900063944 all green incl. the release job, 8 assets,
-  site rebuilt by hand); 0.8.42 and 0.8.43 release details in log/2026-11.md (2026-11-22 entry).
-- **Round 0.8.44** on branch round-0.8.44, latest pre-release **v0.8.44-rc7** (tag on the release-text commit after e8d463c; rc6 fe65ab5): marker fix (E568), Play
-  pre-shift (E574), first Play at small blocks (E577), #51 two-clock guard (E578), xrun crossfade (E579), Logic
-  latency nudge (E580), burst learning fix (E581), library-save logging (E576). 897 tests, hil.sh ALL PASS. After rc6: E582 (Logic burst room + crossfaded rest), E584 (Logic loss paid twice: window waits beyond +JUMP); 915 tests; in rc7. Mutation timelinefollow.h: 88/119 + the E582/E584 kills, every survivor left equivalent.
-- Our TI2 Desktop: back on Linux (2026-11-22 evening, broker socket active); it was on the Mac 16:40-~18:00 for the #41 Logic test and was FROZEN on arrival there (power cycle; cause open). User flashed ROM Z on it in early November (E500). From a VM: VM=win11 scripts/vm.sh detach, then systemctl --user start tirevive-broker.socket.
+- **0.8.45** tagged 2026-11-28 on the merge 871438d9 (release CI 46140888754, check it went Latest with 8 assets;
+  site rebuild by hand after it). rc3 (f63a7dd8) was tested: Linux hil.sh x3 + L1-L3 LC4, win11 hil-win + W1 W2 WC4,
+  Mac hil-mac + M1 M2 MC4, all pass (MC5 sleep dropped by the user). Round 0.8.46 on branch round-0.8.46 (from main).
+- Open from 0.8.45: (1) win11 VM hil-win H1 once with the first 3 notes nearly silent after the cold start right after
+  the VM boot (sent on time; not on Linux/Mac, not repeated): rerun hil-win after a fresh VM boot. (2) ASIO buffer
+  cannot be set in Ableton Live (Live uses the driver panel; ours is text only): a buffer choice in controlPanel.
+- Our TI2 Desktop: on Linux (2026-11-28, broker socket active, units on %t = /run/user since rc3); it was on the Mac 16:40-~18:00 for the #41 Logic test and was FROZEN on arrival there (power cycle; cause open). User flashed ROM Z on it in early November (E500). From a VM: VM=win11 scripts/vm.sh detach, then systemctl --user start tirevive-broker.socket.
 - E591 fixes A-E DONE (E592, user 2026-11-24 'implement all'): efcbd2e (A-C), df67e27 (D broker), E commit (re-send cables once, then display warning). 946 tests; TI2 hil.sh ALL PASS + --idle-first clean with the new plug-in AND new broker (installed in ~/.local/lib/tirevive, backup vtibroker.bak-rc8). Not run: a Virus that really stops answering, D on macOS. rc9 (user 2026-11-25 go): release text + What's New for E591/E592 added, tag v0.8.44-rc9; CI 45626198935 green (11 jobs, pre-release 8 assets); posted #51 -7166973072, #48 -7166973580, #37 -7166974106 (2026-11-25). Linux: rc9 by install.sh (plug-in 11c8f137, broker 756b6fe9). win11: MSI /quiet exit 0 (VST3 fd22e21a), VM shut down. Mac: pkg 95e67abe + INSTALL-COMMAND.txt + "Install test build.command" in ~/Downloads/TI-Revive-0.8.44-rc9, user installs. Waits: edy013 (#51 RAM D fill), encoderaudio (#48 rc9; hub must stay, answered 11-25 why reopening helps + hub-port tip; open: check whether a session reopen also restarts the broker MIDI IN read), packman83 (#37 rc9 Logic).
 - Issues 2026-11-24 late (with the user): #37 asked for rc8, #48 asked (no SysEx replies in exactly the distorted sessions, cured by a Virus off/on?), #40 answered, #43 + #38 closed. Open (2026-11-27): 60 53 51 48 40 37 32.
 - Issues 2026-11-25 (with the user): only #48 new (Virus on a USB3 hub, nothing seen at the drop) -> posted: connect directly, retest (issuecomment-7164087174). #47 + #45 reach 7 quiet days on 11-26, #53 on 11-30.
@@ -85,9 +86,6 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
   starts CI without touching this file is stopped once to update it.
 
 ## NEXT
-
-- 2026-11-28: code review 66/67 + audit 20/20 DONE (log/2026-11.md). rc3 green; Linux + win11 installed, hil.sh ALL PASS;
-  Mac folder work/release-0.8.45-rc3/mac (Mac asleep). Checklist claude.ai/artifact/QSy5D8zFztPMwN6YW5iHvW: Linux 4/4, Win 3/3 pass; Mac 3/3: checklist 10/10 pass. User: release now (2026-11-28). Open: H1 quiet notes VM, ASIO buffer in Live.
 - Side project, not part of the rounds (user 2026-11-27): the Modern skin lives on branch `skin-modern` (f3fb89f7,
   local only); its state is in findings/skin-modern.md on that branch.
 
