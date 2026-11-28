@@ -14,6 +14,7 @@
 #include "brokerinfo.h"
 #include "flashinfo.h"
 #include "ctrlguard.h"
+#include "outfill.h"
 #include "sxhold.h"
 #include "owner.h"
 #include "trafficring.h"
@@ -185,9 +186,7 @@ static int waits(const client *c) // g_cs_clients held
 // the Virus' identification blocks (VTIMSG_FLASHINFO, flashinfo.h): read once per device open with the original
 // driver's fixed read-only sequence, then cached; the device lock is held per request only (MIDI keeps flowing)
 static unsigned g_dev_gen; // counts device opens: the cache belongs to one
-static uint8_t g_flash[VTI_FLASH_BLOCKS * 16];
-static int g_flash_len, g_flash_busy;
-static unsigned g_flash_gen;
+static vti_flashcache g_flash; // g_cs_dev
 
 static int flash_ctl(void *u, uint8_t rt, uint8_t req, uint16_t val, uint16_t idx, uint8_t *d, uint16_t len)
 {
@@ -202,26 +201,17 @@ static void flash_nap(int ms) { usleep((useconds_t)ms * 1000); }
 
 static int flash_info(uint8_t *out)
 {
+    int n;
     pthread_mutex_lock(&g_cs_dev);
     unsigned gen = g_dev_gen;
-    int cached = g_dev && g_flash_len > 0 && g_flash_gen == gen, start = g_dev && !cached && !g_flash_busy;
-    if (cached)
-        memcpy(out, g_flash, (size_t)g_flash_len);
-    if (start)
-        g_flash_busy = 1;
-    int n = cached ? g_flash_len : -1;
+    const int start = vti_flash_begin(&g_flash, g_dev != NULL, gen, out, &n);
     pthread_mutex_unlock(&g_cs_dev);
     if (!start)
         return n;
     n = vti_flash_info(flash_ctl, flash_nap, &gen, out);
     blog("flash info read (read-only, E026): %d bytes", n);
     pthread_mutex_lock(&g_cs_dev);
-    g_flash_busy = 0;
-    if (n > 0 && g_dev_gen == gen) {
-        memcpy(g_flash, out, (size_t)n);
-        g_flash_len = n;
-        g_flash_gen = gen;
-    }
+    vti_flash_end(&g_flash, g_dev_gen, gen, out, n);
     pthread_mutex_unlock(&g_cs_dev);
     return n;
 }
@@ -337,14 +327,8 @@ static void obs_push(uint16_t type, const void *a, int alen, const void *b, int 
 static void obs_traffic(uint8_t kind, uint8_t ep, const void *a, int alen, const void *b, int blen)
 {
     __atomic_add_fetch(kind == 0 ? &g_cnt_out : kind == 1 ? &g_cnt_in : &g_cnt_ctl, 1, __ATOMIC_RELAXED);
-    uint8_t hdr[6] = {kind, ep};
-    uint32_t t = uptime_ms();
-    memcpy(hdr + 2, &t, 4);
-    uint8_t body[VTIMSG_MAX];
-    int n = alen < (int)sizeof body ? alen : (int)sizeof body;
-    memcpy(body, a, (size_t)n);
-    if (blen > 0 && n + blen <= (int)sizeof body)
-        memcpy(body + n, b, (size_t)blen), n += blen;
+    uint8_t hdr[6], body[VTIMSG_MAX];
+    const int n = vti_trafrec(hdr, body, (int)sizeof body, kind, ep, uptime_ms(), a, alen, b, blen);
     pthread_mutex_lock(&g_cs_pre);
     vti_trafring_push(&g_pre, hdr, body, n, NULL, 0);
     if (__atomic_load_n(&g_obs_count, __ATOMIC_RELAXED))
@@ -695,43 +679,19 @@ static void audio_in(const int16_t *pcm, uint32_t frames, void *user) // libusb 
     pthread_mutex_unlock(&g_cs_tick);
 }
 
-// OUT packet source: as vtibroker.c - playback starts with OUT_PREFILL frames buffered, latency bounded by OUT_MAX
-#define OUT_PREFILL 512
-#define OUT_MAX 2048
-static int g_out_playing;
-static uint64_t g_out_underruns, g_out_dropped, g_out_frames;
+// OUT packet source: the client's frames from the output ring (outfill.h)
+static vti_outfill g_out;
 
 static void audio_out(int16_t *dst, uint32_t frames, void *user)
 {
     (void)user;
     int64_t w = __atomic_load_n(&g_shm->out_write, __ATOMIC_ACQUIRE), r = g_shm->out_read;
-    int64_t avail = w - r;
-    if (avail < 0 || avail > VTI_AUDIO_RING) { // writer restarted or far ahead: resynchronise
-        r = w;
-        avail = 0;
-        g_out_playing = 0;
-    }
-    if (!g_out_playing && avail >= OUT_PREFILL)
-        g_out_playing = 1;
-    if (g_out_playing && avail > OUT_MAX) {
-        g_out_dropped += (uint64_t)(avail - OUT_PREFILL);
-        r = w - OUT_PREFILL;
-        avail = OUT_PREFILL;
-    }
-    uint32_t n = 0;
-    if (g_out_playing) {
-        n = avail < frames ? (uint32_t)avail : frames;
-        for (uint32_t i = 0; i < n; i++)
-            memcpy(dst + i * VTI_AUDIO_OUT_CH, &g_shm->out[((r + i) & (VTI_AUDIO_RING - 1)) * VTI_AUDIO_OUT_CH],
-                   VTI_AUDIO_OUT_CH * sizeof(int16_t));
-        if (n < frames) { // ran dry: refill before playing again
-            g_out_underruns++;
-            g_out_playing = 0;
-        }
-    }
+    const uint32_t n = vti_outfill_take(&g_out, w, &r, frames);
+    for (uint32_t i = 0; i < n; i++)
+        memcpy(dst + i * VTI_AUDIO_OUT_CH, &g_shm->out[((r + i) & (VTI_AUDIO_RING - 1)) * VTI_AUDIO_OUT_CH],
+               VTI_AUDIO_OUT_CH * sizeof(int16_t));
     memset(dst + n * VTI_AUDIO_OUT_CH, 0, (frames - n) * VTI_AUDIO_OUT_CH * sizeof(int16_t));
     g_shm->out_read = r + n;
-    g_out_frames += n;
 }
 
 // Block notifications go out from here, not from the USB thread, so a slow client never delays the stream.
@@ -877,8 +837,8 @@ static int audio_start(uint32_t wanted, int owner)
     g_tick_sent = 0;
     g_f5_base = -1;
     g_shm->out_read = g_shm->out_write;
-    g_out_playing = 0;
-    g_out_frames = g_out_underruns = g_out_dropped = 0;
+    g_out.playing = 0;
+    g_out.frames = g_out.underruns = g_out.dropped = 0;
     // a fresh start protects no running stream: any explicit wish applies (still debounced); 0 keeps the last rate
     uint32_t last = g_shm->rate ? g_shm->rate : VLA_RATE;
     uint32_t rate = vti_rate_choose(last, wanted, 1, vti_rate_may_switch(&g_rate_guard, uptime_ms()));
@@ -903,9 +863,9 @@ static void audio_stop(void) // g_cs_dev held
     // the gap diagnostics start again with the next stream: else its first block counted the pause since this one
     // ("usb block late: 3843 ms" after every DAW restart in #37's log, no real delay)
     g_in_last = g_tick_last = 0;
-    if (g_out_frames)
-        blog("audio out: %llu frames played, %llu underruns, %llu frames dropped", (unsigned long long)g_out_frames,
-             (unsigned long long)g_out_underruns, (unsigned long long)g_out_dropped);
+    if (g_out.frames)
+        blog("audio out: %llu frames played, %llu underruns, %llu frames dropped", (unsigned long long)g_out.frames,
+             (unsigned long long)g_out.underruns, (unsigned long long)g_out.dropped);
 }
 
 // a write waiting on a busy Virus goes on while the broker runs and (client != NULL) its client is still connected:

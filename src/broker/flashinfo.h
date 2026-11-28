@@ -6,6 +6,7 @@
 // refused (ctrlguard.h, AGENTS.md rule 2). Tests: native/tests/test_flashinfo.cpp.
 #pragma once
 #include <stdint.h>
+#include <string.h>
 
 #define VTI_FLASH_BLOCKS 12
 #define VTI_FLASH_MAX_POLLS 100 // x 10 ms; the Access driver needs 100-250 ms per block (E040)
@@ -36,4 +37,36 @@ static inline int vti_flash_info(vti_flash_ctl ctl, vti_flash_nap nap, void *u, 
             return -1;
     }
     return VTI_FLASH_BLOCKS * 16;
+}
+
+// the brokers' cache of the blocks: read once per device open, one read at a time, the device lock held per request
+// only (MIDI keeps flowing). Both brokers call these with their device lock held (review A11: was two copies).
+typedef struct {
+    uint8_t data[VTI_FLASH_BLOCKS * 16];
+    int len, busy;
+    unsigned gen; // the device open the data belongs to
+} vti_flashcache;
+
+// 1 = the caller reads now (vti_flash_info, then vti_flash_end); 0 = *n cached bytes copied to out, or -1 for none
+static inline int vti_flash_begin(vti_flashcache *f, int dev_open, unsigned gen, uint8_t *out, int *n)
+{
+    const int cached = dev_open && f->len > 0 && f->gen == gen;
+    if (cached)
+        memcpy(out, f->data, (size_t)f->len);
+    *n = cached ? f->len : -1;
+    if (!dev_open || cached || f->busy)
+        return 0;
+    f->busy = 1;
+    return 1;
+}
+
+// after the read of device open `gen` gave n bytes in out; dev_gen = the device open now (kept only if the same)
+static inline void vti_flash_end(vti_flashcache *f, unsigned dev_gen, unsigned gen, const uint8_t *out, int n)
+{
+    f->busy = 0;
+    if (n > 0 && dev_gen == gen) {
+        memcpy(f->data, out, (size_t)n);
+        f->len = n;
+        f->gen = gen;
+    }
 }
