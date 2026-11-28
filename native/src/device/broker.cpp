@@ -14,6 +14,7 @@ extern "C" {
 #include <windows.h>
 #include <aclapi.h>
 #else
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -37,6 +38,8 @@ static bool io_all(intptr_t fd, void *p, size_t n, bool wr)
     HANDLE h = (HANDLE)fd;
     OVERLAPPED ov{};
     ov.hEvent = CreateEventA(nullptr, TRUE, FALSE, nullptr);
+    if (!ov.hEvent) // without it GetOverlappedResult cannot wait (review A16)
+        return false;
     bool ok = true;
     for (auto *b = (uint8_t *)p; n && ok;) {
         DWORD done = 0;
@@ -218,7 +221,7 @@ static bool start_broker(int slot)
     vti_slot_suffix(sfx, slot);
     snprintf(log, sizeof log, "/tmp/tirevive-vtibroker%s.log", sfx); // Virus N of several: its own log (#45)
     snprintf(num, sizeof num, "%d", slot);
-    posix_spawn_file_actions_addopen(&fa, 2, log, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    posix_spawn_file_actions_addopen(&fa, 2, log, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW, 0644); // /tmp: no symlink (review A16)
     pid_t pid;
     char *argv[] = {(char *)path, (char *)"-slot", num, nullptr};
     int e = posix_spawn(&pid, path, &fa, &at, argv, environ);
@@ -234,6 +237,14 @@ static bool start_broker(int slot)
 }
 #endif
 
+// programs the host starts (a DAW's helpers) must not inherit the broker connection (review A16)
+static int cloexec(int fd)
+{
+    if (fd >= 0)
+        fcntl(fd, F_SETFD, FD_CLOEXEC);
+    return fd;
+}
+
 static intptr_t os_connect(const std::string &endpoint, int slot, std::string &error)
 {
     sockaddr_un sa{};
@@ -248,14 +259,14 @@ static intptr_t os_connect(const std::string &endpoint, int slot, std::string &e
         error = "socket path too long: " + endpoint;
         return -1;
     }
-    int fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    int fd = cloexec(::socket(AF_UNIX, SOCK_STREAM, 0));
     bool ok = fd >= 0 && !::connect(fd, (sockaddr *)&sa, sizeof sa);
 #ifdef __APPLE__
     if (fd >= 0 && !ok && endpoint.empty() && start_broker(slot)) // never start the real broker for another endpoint
         for (int i = 0; i < 40 && !ok; i++) { // up to ~4 s for the broker to listen
             usleep(100000);
             ::close(fd);
-            fd = ::socket(AF_UNIX, SOCK_STREAM, 0);
+            fd = cloexec(::socket(AF_UNIX, SOCK_STREAM, 0));
             ok = fd >= 0 && !::connect(fd, (sockaddr *)&sa, sizeof sa);
         }
 #endif
@@ -299,12 +310,14 @@ static void os_release(intptr_t fd)
 
 bool Broker::open(std::string &error)
 {
+    std::lock_guard<std::mutex> life(life_);
     if (connected())
         return true;
-    close(); // the reader of a lost connection is joined, its handle released
+    close_locked(); // the reader of a lost connection is joined, its handle released
     {
         std::lock_guard<std::mutex> g(ctl_); // a new connection: no reply comes for a request sent on the old one
         audio_got_ = audio_sent_;
+        observe_reply_ = 0; // review A13: the old connection's OBSERVE reply says nothing about this one
     }
     {
         std::lock_guard<std::mutex> g(wr_); // senders on other threads see the handle whole (review 2026-10-19 M7)
@@ -318,16 +331,19 @@ bool Broker::open(std::string &error)
     send(VTIMSG_HELLO, &ver, 4, name_.data(), name_.size()); // older brokers read only the version
     stop_ = false;
     reader_done_ = false;
-    reader_ = std::thread([this] {
-        read_loop();
-        reader_done_ = true;
-    });
+    reader_ = std::thread([this] { read_loop(); });
     for (int i = 0; i < 100 && !present_; i++) // STATE arrives right after connecting
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     return true;
 }
 
 void Broker::close()
+{
+    std::lock_guard<std::mutex> life(life_);
+    close_locked();
+}
+
+void Broker::close_locked()
 {
     stop_ = true;
     if (fd_ >= 0 && reader_.joinable())
@@ -401,7 +417,8 @@ int Broker::control(uint8_t rt, uint8_t req, uint16_t value, uint16_t index, uin
         return -1;
     }
     std::unique_lock<std::mutex> l(ctl_);
-    const bool got = ctl_cv_.wait_for(l, std::chrono::milliseconds(timeout_ms), [&] { return replies_.count(seq) > 0; });
+    ctl_cv_.wait_for(l, std::chrono::milliseconds(timeout_ms), [&] { return replies_.count(seq) > 0 || reader_done_; });
+    const bool got = replies_.count(seq) > 0;
     waiting_.erase(seq);
     if (!got)
         return -1;
@@ -428,7 +445,7 @@ int Broker::plugin_owner(int timeout_ms)
     if (!send(VTIMSG_OWNER, nullptr, 0))
         return -1;
     std::unique_lock<std::mutex> l(ctl_);
-    ctl_cv_.wait_for(l, std::chrono::milliseconds(timeout_ms), [&] { return owner_reply_ >= 0; });
+    ctl_cv_.wait_for(l, std::chrono::milliseconds(timeout_ms), [&] { return owner_reply_ >= 0 || reader_done_; });
     return owner_reply_;
 }
 
@@ -448,7 +465,8 @@ int Broker::flash_info(std::vector<uint8_t> &out, int timeout_ms)
     if (!send(VTIMSG_FLASHINFO, nullptr, 0))
         return -1;
     std::unique_lock<std::mutex> l(ctl_);
-    if (!ctl_cv_.wait_for(l, std::chrono::milliseconds(timeout_ms), [&] { return flash_replied_; }))
+    ctl_cv_.wait_for(l, std::chrono::milliseconds(timeout_ms), [&] { return flash_replied_ || reader_done_; });
+    if (!flash_replied_)
         return -1;
     if (flash_reply_ > 0)
         out = flash_;
@@ -474,8 +492,12 @@ int Broker::audio(bool on, int timeout_ms, uint32_t rate)
         tail.push_back((char)(rate >> (8 * i)));
     const bool sent = send(VTIMSG_AUDIO, &v, 4, tail.data(), tail.size()); // u32 on + event name + rate
     std::unique_lock<std::mutex> l(ctl_);
-    const bool got = sent && ctl_cv_.wait_for(l, std::chrono::milliseconds(timeout_ms),
-                                              [&] { return audio_replies_.count(n) > 0; });
+    if (!sent && audio_sent_ == n) // review A15: no reply comes for it; the next one's must not be counted as its
+        audio_sent_--;
+    if (sent)
+        ctl_cv_.wait_for(l, std::chrono::milliseconds(timeout_ms),
+                         [&] { return audio_replies_.count(n) > 0 || reader_done_; });
+    const bool got = audio_replies_.count(n) > 0;
     audio_waiting_.erase(n);
     const int r = got ? audio_replies_[n] : -1;
     audio_replies_.erase(n);
@@ -495,13 +517,18 @@ bool Broker::observe(ObserveHandler h, std::string &error, bool replay)
         std::lock_guard<std::mutex> g(cb_mu_); // set before the request: messages follow the reply at once
         observe_ = std::move(h);
     }
+    {
+        std::lock_guard<std::mutex> g(ctl_); // review A13: only the reply to this request counts
+        observe_reply_ = 0;
+    }
     const uint8_t flags = 1;
     if (!send(VTIMSG_OBSERVE, replay ? &flags : nullptr, replay ? 1 : 0)) {
         error = "broker connection lost";
         return false;
     }
     std::unique_lock<std::mutex> l(ctl_);
-    if (!ctl_cv_.wait_for(l, std::chrono::milliseconds(1500), [&] { return observe_reply_ != 0; })) {
+    ctl_cv_.wait_for(l, std::chrono::milliseconds(1500), [&] { return observe_reply_ != 0 || reader_done_; });
+    if (!observe_reply_) {
         l.unlock();
         close();
         error = "the TI Revive broker is too old for Nerd mode (needs TI Revive 0.8.2 or newer)";
@@ -625,6 +652,11 @@ void Broker::read_loop()
     }
     present_ = false;
     elsewhere_ = false;
+    {
+        std::lock_guard<std::mutex> g(ctl_); // under ctl_: a waiter checks it in its predicate (review A12)
+        reader_done_ = true;
+    }
+    ctl_cv_.notify_all();
 }
 
 } // namespace vti

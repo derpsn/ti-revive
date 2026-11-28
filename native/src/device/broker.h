@@ -144,6 +144,7 @@ private:
     int slot_ = 1;
     mutable std::mutex info_mu_;
     std::thread reader_;
+    std::mutex life_; // open() / close(): one at a time (review A14: two joined one reader, or set fd_ under a running one)
     std::mutex wr_;
     mutable std::mutex ctl_;
     std::condition_variable ctl_cv_;
@@ -163,6 +164,7 @@ private:
     bool send(uint16_t type, const void *a, size_t alen, const void *b = nullptr, size_t blen = 0);
     bool send_locked(uint16_t type, const void *a, size_t alen, const void *b, size_t blen); // wr_ held
     void read_loop();
+    void close_locked(); // life_ held
 };
 
 } // namespace vti
