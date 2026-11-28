@@ -1519,7 +1519,10 @@ int main(int argc, char **argv)
         close(s);
         unlink(sa.sun_path);
         s = socket(AF_UNIX, SOCK_STREAM, 0);
-        if (bind(s, (struct sockaddr *)&sa, sizeof sa) || chmod(sa.sun_path, 0600) ||
+        const mode_t um = umask(077); // the socket file is never reachable by others, not even until the chmod (review A6)
+        const int bound = bind(s, (struct sockaddr *)&sa, sizeof sa);
+        umask(um);
+        if (bound || chmod(sa.sun_path, 0600) ||
             (geteuid() == 0 && g_owner_uid != 0 && chown(sa.sun_path, (uid_t)g_owner_uid, (gid_t)-1)) || listen(s, 8)) {
             blog("socket %s: %s", sa.sun_path, strerror(errno));
             return 1;
