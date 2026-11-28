@@ -71,6 +71,7 @@ struct vti {
     void *user;
     volatile int stop, dead;
     pthread_t rd[2];
+    int rd_on[2];           // rd[i] was started: joined in rx_stop
     uint8_t rd_ep[2];
     rxep rx[2];
     pthread_t ev;           // handles libusb events for the transfers (sync calls elsewhere handle them too)
@@ -405,7 +406,8 @@ static int rx_start(vti *v)
                 vti_log("vti: read ep %02x: transfer %d not submitted (%s)\n", e->ep, s, libusb_error_name(r));
         }
         pthread_mutex_unlock(&e->mu);
-        pthread_create(&v->rd[i], NULL, reader, e);
+        if (!(v->rd_on[i] = !pthread_create(&v->rd[i], NULL, reader, e))) // the event thread still drains the endpoint
+            vti_log("vti: read ep %02x: no reader thread, its MIDI is not delivered\n", e->ep);
     }
     return 0;
 }
@@ -440,7 +442,8 @@ static void rx_stop(vti *v)
     }
     v->stop = 1;
     for (int i = 0; i < 2; i++)
-        pthread_join(v->rd[i], NULL);
+        if (v->rd_on[i])
+            pthread_join(v->rd[i], NULL);
     v->ev_stop = 1;
     pthread_join(v->ev, NULL);
     if (!v->leak)
@@ -489,6 +492,8 @@ static libusb_device_handle *open_slot(libusb_context *ctx)
 vti *vti_open(vti_rx_cb cb, void *user)
 {
     vti *v = calloc(1, sizeof *v);
+    if (!v)
+        return NULL;
     v->cb = cb;
     v->user = user;
     int r = libusb_init(&v->ctx);

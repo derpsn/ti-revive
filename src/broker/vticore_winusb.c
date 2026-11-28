@@ -178,6 +178,8 @@ static DWORD WINAPI reader(LPVOID p)
 vti *vti_open(vti_rx_cb cb, void *user)
 {
     vti *v = calloc(1, sizeof *v);
+    if (!v)
+        return NULL;
     v->cb = cb;
     v->user = user;
     v->stop_ev = CreateEventW(NULL, TRUE, FALSE, NULL); // manual reset: both readers see it
@@ -191,9 +193,16 @@ vti *vti_open(vti_rx_cb cb, void *user)
     uint8_t eps[2] = {VTI_EP_MI03_IN, VTI_EP_MI04_IN};
     for (int i = 0; i < 2; i++) {
         rd_arg *a = malloc(sizeof *a);
-        a->v = v;
-        a->ep = eps[i];
-        v->rd[i] = CreateThread(NULL, 0, reader, a, 0, NULL);
+        if (a) {
+            a->v = v;
+            a->ep = eps[i];
+        }
+        if (!a || !(v->rd[i] = CreateThread(NULL, 0, reader, a, 0, NULL))) { // without its reader the Virus stalls (E042)
+            free(a);
+            vti_log("vti: no reader thread for ep %02x\n", eps[i]);
+            vti_close(v);
+            return NULL;
+        }
     }
     if (vti_write(v, VTI_EP_MI03_OUT, HANDSHAKE, sizeof HANDSHAKE)) {
         vti_close(v);

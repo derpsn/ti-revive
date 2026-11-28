@@ -361,6 +361,10 @@ static void *obs_writer(void *arg) // sends the queued bytes; any byte range of 
 {
     obsq *q = arg;
     uint8_t *out = malloc(64 * 1024);
+    if (!out) { // the observer gets nothing; obs_detach still stops and joins this thread
+        blog("out of memory: observer gets no traffic");
+        return NULL;
+    }
     for (;;) {
         pthread_mutex_lock(&q->mu);
         while (!q->len && !q->stop)
@@ -450,9 +454,16 @@ static void obs_attach(client *c, int replay)
     q->c = c;
     pthread_mutex_init(&q->mu, NULL);
     pthread_cond_init(&q->cv, NULL);
-    c->q = q;
     vti_send_timeout(c->fd, 0); // its writer thread holds no broker lock while it sends: a slow capture may wait
-    pthread_create(&q->th, NULL, obs_writer, q);
+    if (pthread_create(&q->th, NULL, obs_writer, q)) { // no queue then: obs_detach would join a thread that never ran
+        pthread_mutex_destroy(&q->mu);
+        pthread_cond_destroy(&q->cv);
+        free(q->ring);
+        free(q);
+        blog("no writer thread: observer gets no traffic");
+        return;
+    }
+    c->q = q;
     pthread_mutex_lock(&g_cs_pre); // nothing new between the replay and the attach, nothing twice
     if (replay) {
         if (g_pre.lost) {
@@ -1559,13 +1570,11 @@ int main(int argc, char **argv)
     }
 #endif
     pthread_t t;
-    pthread_create(&t, NULL, signal_thread, &sigs);
-    pthread_detach(t);
-    pthread_create(&t, NULL, device_thread, NULL);
-    pthread_detach(t);
-    if (g_usb_audio) {
-        pthread_create(&t, NULL, tick_thread, NULL);
-        pthread_detach(t);
+    if (pthread_create(&t, NULL, signal_thread, &sigs) || pthread_detach(t) ||
+        pthread_create(&t, NULL, device_thread, NULL) || pthread_detach(t) ||
+        (g_usb_audio && (pthread_create(&t, NULL, tick_thread, NULL) || pthread_detach(t)))) {
+        blog("could not start the broker's threads");
+        return 1;
     }
     struct pollfd pf[2] = {{.fd = s, .events = POLLIN}, {.fd = -1, .events = POLLIN}};
 #ifdef __linux__
@@ -1603,7 +1612,13 @@ int main(int argc, char **argv)
             }
 #endif
             pthread_mutex_init(&c->wr, NULL);
-            pthread_create(&t, NULL, client_thread, c);
+            if (pthread_create(&t, NULL, client_thread, c)) {
+                blog("no client thread: client refused");
+                pthread_mutex_destroy(&c->wr);
+                close(fd);
+                free(c);
+                continue;
+            }
             pthread_detach(t);
         }
     }
