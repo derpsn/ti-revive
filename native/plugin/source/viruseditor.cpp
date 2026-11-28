@@ -46,7 +46,10 @@ extern char **environ;
 #if SMTG_OS_LINUX
 // server-side (X pixmap) copies of the bitmaps: VSTGUI keeps CPU image surfaces and uploads their pixels on every
 // draw into the X back buffer (~67 ms per full repaint on a real X server / XWayland vs ~8 ms on Xvfb). Cairo::Bitmap
-// has no way to wrap another surface, so its members are opened up for this file only.
+// takes another surface in its constructor, but reads the size from it with cairo_image_surface_get_width, which is 0
+// for an X surface, and has no setter for it: its members are opened up for this file only, and only `size` is
+// written through that (review B34: everything else goes through the public API). Dropping this needs a VSTGUI
+// change (a size setter, or the constructor taking the size), not made here.
 #define private public
 #include "vstgui/lib/platform/linux/cairobitmap.h"
 #undef private
@@ -70,9 +73,16 @@ static void open_url(const char *url)
 #else
     const char *tool = SMTG_OS_MACOS ? "open" : "xdg-open";
     char *argv[] = {const_cast<char *>(tool), const_cast<char *>(url), nullptr};
+    // reaped on a later call, not by a detached thread that could still run when the host unloads the plug-in
+    // (review B34); shortcut: the last child stays a zombie until the next link or the host's exit (open/xdg-open
+    // end within moments), a reaping SIGCHLD handler would be the host's business
+    static std::vector<pid_t> children; // UI thread only
+    children.erase(std::remove_if(children.begin(), children.end(),
+                                  [](pid_t p) { return waitpid(p, nullptr, WNOHANG) != 0; }), // gone or reaped
+                   children.end());
     pid_t pid;
     if (posix_spawnp(&pid, tool, nullptr, nullptr, argv, environ) == 0)
-        std::thread([pid] { waitpid(pid, nullptr, 0); }).detach(); // reap it (open/xdg-open return quickly)
+        children.push_back(pid);
 #endif
 }
 
@@ -163,7 +173,7 @@ static SharedPointer<CBitmap> server_bitmap(CFrame *frame, CBitmap *bmp)
     if (!frame || !bmp || getenv("VTI_NATIVE_NO_PIXMAPS"))
         return nullptr;
     auto *cb = dynamic_cast<Cairo::Bitmap *>(bmp->getPlatformBitmap().get());
-    if (!cb || !cb->surface || cairo_surface_get_type(cb->surface) != CAIRO_SURFACE_TYPE_IMAGE)
+    if (!cb || !cb->getSurface() || cairo_surface_get_type(cb->getSurface()) != CAIRO_SURFACE_TYPE_IMAGE)
         return nullptr;
     if (!ref) {
         auto *conn = X11::RunLoop::instance().getXcbConnection();
@@ -186,7 +196,7 @@ static SharedPointer<CBitmap> server_bitmap(CFrame *frame, CBitmap *bmp)
             return nullptr;
         ref = cairo_xcb_surface_create(conn, win, vt, 1, 1);
     }
-    int w = cairo_image_surface_get_width(cb->surface), h = cairo_image_surface_get_height(cb->surface);
+    int w = cairo_image_surface_get_width(cb->getSurface()), h = cairo_image_surface_get_height(cb->getSurface());
     cairo_surface_t *srv = cairo_surface_create_similar(ref, CAIRO_CONTENT_COLOR_ALPHA, w, h);
     if (cairo_surface_status(srv) != CAIRO_STATUS_SUCCESS) {
         cairo_surface_destroy(srv);
@@ -194,14 +204,13 @@ static SharedPointer<CBitmap> server_bitmap(CFrame *frame, CBitmap *bmp)
     }
     cairo_t *cr = cairo_create(srv);
     cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
-    cairo_set_source_surface(cr, cb->surface, 0, 0);
+    cairo_set_source_surface(cr, cb->getSurface(), 0, 0);
     cairo_paint(cr);
     cairo_destroy(cr);
     cairo_surface_flush(srv);
-    auto nb = makeOwned<Cairo::Bitmap>();
-    nb->surface = Cairo::SurfaceHandle(srv);
-    nb->size = CPoint(w, h);
-    nb->scaleFactor = cb->scaleFactor;
+    auto nb = makeOwned<Cairo::Bitmap>(Cairo::SurfaceHandle(srv));
+    nb->size = CPoint(w, h); // the one private member used (see the #define above)
+    nb->setScaleFactor(cb->getScaleFactor());
     return makeOwned<CBitmap>(nb);
 }
 #endif
