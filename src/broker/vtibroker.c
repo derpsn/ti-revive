@@ -957,6 +957,9 @@ static DWORD WINAPI client_thread(LPVOID arg)
     LeaveCriticalSection(&g_cs_tx);
     audio_request(c, 0, NULL, 0);
     client *next = NULL;
+    EnterCriticalSection(&g_cs_dev); // for the handover's STATE below (order: g_cs_dev, then g_cs_clients)
+    const uint32_t dev_open = g_dev != NULL;
+    LeaveCriticalSection(&g_cs_dev);
     EnterCriticalSection(&g_cs_clients);
     for (int i = 0; i < MAX_CLIENTS; i++)
         if (g_clients[i] == c)
@@ -966,7 +969,9 @@ static DWORD WINAPI client_thread(LPVOID arg)
         users += g_clients[i] && !g_clients[i]->observer;
     if (g_plugin_owner == c) { // hand the Virus to the next waiting plug-in (another program)
         g_plugin_owner = NULL;
-        next = next_plugin_owner();
+        // its STATE under g_cs_clients: outside it `next` could disconnect and be freed first (review A4)
+        if ((next = next_plugin_owner()) != NULL) // the owner now: it does not wait
+            send_msg(next, VTIMSG_STATE, &dev_open, 4, NULL, 0);
     }
     LeaveCriticalSection(&g_cs_clients);
     if (!c->observer) {
@@ -975,10 +980,8 @@ static DWORD WINAPI client_thread(LPVOID arg)
             vti_link(g_dev, 0);
         LeaveCriticalSection(&g_cs_tx);
     }
-    if (next) {
+    if (next) // only logged: `next` may be gone by now
         blog("the next program's plug-in owns the Virus now");
-        send_state(next);
-    }
     c->alive = 0;
     SetEvent(c->q_event);
     WaitForSingleObject(c->sender, INFINITE); // removed from g_clients above: no new messages can arrive
