@@ -1,5 +1,6 @@
 // skinpage.cpp - see skinpage.h.
 #include "skinpage.h"
+#include "busygate.h"
 #include "model/utf8.h"
 #include "access/accessfiles.h"
 #include "cc/ccskin.h"
@@ -81,10 +82,14 @@ public:
     }
     ~SkinPage() noexcept override
     {
+        timer_ = nullptr;
         stop_ = true;
         cancel_ = true;
         if (worker_.joinable())
             worker_.join();
+        // review A31: the SkinView uses files_, layout_ and this page (SkinState); the base destructor would remove it
+        // after those members are gone
+        removeAll();
     }
 
     void activate(bool on)
@@ -130,7 +135,7 @@ public:
         if (e == kBackupPanel)
             return page_ == kBackup;
         if (e == kBusy)
-            return busy_ && backing_up_;
+            return cc_busy() && (backing_up_ || !busy_); // our backup, or the app's restore (RESTORE)
         if (e == kNerdLiveCols)
             return page_ == kNerd && nerd_mode_ == kNerdLive;
         if (e == kNerdLogCols)
@@ -138,9 +143,9 @@ public:
         if (x == "SelectRow0Enable")
             return found_;
         if (x == "BootReady")
-            return found_ && !busy_;
+            return found_ && !cc_busy();
         if (x == "BackupRestoreReady")
-            return !target_.empty() && !busy_ && !done_;
+            return !target_.empty() && !cc_busy() && !done_;
         return false; // the Burn Flash / OS update elements, rows 1..6 (one Virus), ...
     }
     int value(const std::string &p) override
@@ -182,7 +187,7 @@ public:
         if (x == "SelectedVirusStatusLabel")
             return found_ ? "STATUS:" : "";
         if (x == "SelectedVirusStatus")
-            return found_ ? (busy_ ? " BUSY" : " READY") : "";
+            return found_ ? (cc_busy() ? " BUSY" : " READY") : "";
         if (x == "BackupRestorePath") // one line of 84 characters in the original's field: the end of the path
             return backup_text_.size() > 84 ? "..." + backup_text_.substr(backup_text_.size() - 81) : backup_text_;
         if (p == kStatus)
@@ -212,9 +217,9 @@ public:
     {
         const std::string &p = n.parameter;
         if (p.find("TriggerRestore") != std::string::npos)
-            return !busy_ && found_ && actions_.restore; // RAM banks from a library, never flash (E313)
+            return !cc_busy() && found_ && actions_.restore; // RAM banks from a library, never flash (E313)
         if (p.find("TriggerBackup") != std::string::npos || p == kChangePath)
-            return !busy_;
+            return !cc_busy();
         if (p == kModel)
             return !snow_;
         if (p == kNerdAction && n.value == kActClock)
@@ -294,6 +299,8 @@ public:
             option_toggle(n.value);
         } else if (p == kCancel) {
             cancel_ = true;
+            if (actions_.cancel) // the app's restore, started from RESTORE (review A27)
+                actions_.cancel();
             std::lock_guard<std::mutex> l(mu_);
             status_ = "Cancelling...";
         } else if (p == kNerdMode) {
@@ -348,10 +355,11 @@ private:
     std::vector<FooterButton> footer_;
 
     std::mutex mu_; // the fields below; the worker writes them
-    Page page_ = kStartup;
-    bool found_ = false, snow_ = false, done_ = false;
+    std::atomic<Page> page_{kStartup}; // review A29: the worker sets it (refresh), the UI thread reads it unlocked
+    std::atomic<bool> found_{false}, snow_{false};
+    bool done_ = false;
     int model_ = kDesktop;
-    std::atomic<bool> busy_{false}, stop_{false};
+    std::atomic<bool> busy_{false}, stop_{false}; // busy_: our own worker runs (cc_busy(): any action)
     std::string product_, usb_, status_ = "Looking for the Virus...", backup_text_, target_;
     std::thread worker_;
 
@@ -363,7 +371,7 @@ private:
 
     // nerd mode (UI thread only; text() reads it under mu_ like the rest)
     Live live_;
-    Page nerd_back_ = kSelector; // where NERD MODE pressed again returns to
+    std::atomic<Page> nerd_back_{kSelector}; // where NERD MODE pressed again returns to (the worker sets it too)
     int nerd_mode_ = kNerdLive, nerd_ticks_ = 0;
     bool nerd_paused_ = false, nerd_clock_ = false;
     vti::cc::LogScroll scroll_;
@@ -581,7 +589,7 @@ private:
             std::lock_guard<std::mutex> l(mu_);
             was = page_;
             if (page_ != kNerd && page_ != kOptions)
-                nerd_back_ = page_ == kStartup ? kSelector : page_;
+                nerd_back_ = was == kStartup ? kSelector : was;
             page_ = p;
         }
         if (was == kNerd && p != kNerd)
@@ -594,7 +602,7 @@ private:
         {
             std::lock_guard<std::mutex> l(mu_);
             was = page_;
-            page_ = nerd_back_;
+            page_ = nerd_back_.load();
         }
         if (was == kNerd)
             nerd_leave();
@@ -996,16 +1004,22 @@ private:
         });
     }
 
-    template <class F> void run(F &&f)
+    template <class F> bool run(F &&f)
     {
-        if (busy_.exchange(true))
-            return;
+        if (cc_busy().exchange(true)) { // the app's restore or our own action (review A26, A33)
+            std::lock_guard<std::mutex> l(mu_);
+            status_ = kBusyNote;
+            return false;
+        }
+        busy_ = true;
         if (worker_.joinable())
             worker_.join();
         worker_ = std::thread([this, f = std::forward<F>(f)] {
             f();
             busy_ = false;
+            cc_busy() = false;
         });
+        return true;
     }
 
     void refresh()
@@ -1018,7 +1032,7 @@ private:
             bool ok = broker.open(err) && broker.device_present() && vti::cc::read_device_info(broker, di, err);
             std::lock_guard<std::mutex> l(mu_);
             found_ = ok;
-            Page &to = page_ == kNerd ? nerd_back_ : page_; // nerd mode open: it stays, its way back changes
+            std::atomic<Page> &to = page_ == kNerd ? nerd_back_ : page_; // nerd mode open: it stays, its way back changes
             if (!ok) {
                 status_ = "No Virus found"; // 36 characters fit in the footer
                 to = kSelector;
@@ -1078,9 +1092,9 @@ private:
         }
         if (out.empty())
             return;
-        cancel_ = false;
         backing_up_ = true; // CANCEL shows while it runs
-        run([this, out] {
+        const bool started = run([this, out] {
+            cancel_ = false; // here: a refused OK must not undo a CANCEL of the backup that runs (review A30)
             struct Done {
                 std::atomic<bool> &f;
                 ~Done() { f = false; }
@@ -1108,6 +1122,8 @@ private:
                                (warning.empty() ? "" : ". " + warning)
                          : cancel_ ? "Backup cancelled" : "Not finished: " + err;
         });
+        if (!started) // review A30: refused while busy, it stayed set and CANCEL stayed up
+            backing_up_ = false;
     }
 };
 

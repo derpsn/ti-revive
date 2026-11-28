@@ -49,6 +49,7 @@ public:
     ~Live()
     {
         stop();
+        join(); // stop() does not wait for a connect still running
         stop_record();
     }
     // The full traffic log in a file (cc/capture.h): reconnects to get the broker's pre-roll too, and keeps running on
@@ -94,12 +95,16 @@ public:
         join();
         thread_ = std::thread([this] { connect(); });
     }
+    // UI thread: never waits for a connect still running (up to seconds while a broker starts, review A32); that one
+    // sees running_ false and drops its connection itself
     void stop()
     {
         running_ = false;
-        join();
-        std::lock_guard<std::mutex> l(conn_);
-        broker_.reset();
+        std::unique_ptr<vti::Broker> b;
+        {
+            std::lock_guard<std::mutex> l(conn_);
+            b = std::move(broker_);
+        }
     }
     // the last `n` lines as text (newest last) and the status; `clock` = with the clock lines (the plain page)
     void snapshot(size_t n, bool clock, std::vector<std::string> &lines, std::string &status)
@@ -263,7 +268,8 @@ private:
         }
         status_ = "Connected (read-only observer), waiting for the broker's status...";
         std::lock_guard<std::mutex> lc(conn_);
-        broker_ = std::move(b);
+        if (running_) // else stop() came while it connected
+            broker_ = std::move(b);
     }
 };
 

@@ -20,6 +20,7 @@ struct SkinPageActions {
     // RESTORE: the app's restore (file, then the bank menu); its status lines go to the given function too
     std::function<void(std::function<void(const std::string &)>)> restore;
     std::function<void()> options; // OPTIONS: the Options page (0.8.41)
+    std::function<void()> cancel;  // CANCEL: also stops the app's restore (review A27)
 };
 
 // nullptr if the user's installer has no Control Center (the app then shows its plain page); `error` says why
