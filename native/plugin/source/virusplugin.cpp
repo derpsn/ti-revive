@@ -1833,7 +1833,7 @@ tresult PLUGIN_API VirusPlugin::setActive(TBool state)
     const int64_t latency_before = latency_reported_;
     if (state && out_ && out_->audio_ready() && virus_rate_for(rate_) != virus_rate()) {
         const bool ok = out_->request_rate(virus_rate_for(rate_), 3000);
-        out_->log("Virus TI native: host %.0f Hz -> the Virus at %d Hz%s\n", rate_, virus_rate(),
+        out_->log("Virus TI native: host %.0f Hz -> the Virus at %d Hz%s\n", rate_.load(), virus_rate(),
                   ok ? "" : " (not switched: the broker kept its rate)");
     }
     const tresult res = SingleComponentEffect::setActive(state);
@@ -1854,8 +1854,8 @@ void VirusPlugin::check_latency()
     const int64_t read = latency_reported_.load();
     const int64_t now = std::lround(latency_frames() * rate_ / virus_rate());
     if (latency_watch_.read_changed(read) && out_)
-        out_->log("Virus TI native: the host reads latency %lld samples (block %d, %.0f Hz)\n", (long long)read, block_,
-                  rate_);
+        out_->log("Virus TI native: the host reads latency %lld samples (block %d, %.0f Hz)\n", (long long)read, block_.load(),
+                  rate_.load());
     if (latency_watch_.announce(active_.load(), read, now) && componentHandler) {
         if (out_)
             out_->log("Virus TI native: latency now %lld samples, the host last read %lld - announced again\n",
@@ -1908,7 +1908,7 @@ tresult PLUGIN_API VirusPlugin::setupProcessing(ProcessSetup &setup)
             resampler_[vidx(vr)].setup(step);
             src = std::max(src, (size_t)(block_ * step * 1.01) + 2 * Resampler::TAPS + 8);
         }
-        sc_[vidx(vr)].setup(rate_, std::max(block_, 1), vr);
+        sc_[vidx(vr)].setup(rate_, std::max(block_.load(), 1), vr);
         out = std::max(out, (size_t)sc_[vidx(vr)].max_out() * 2);
     }
     for (auto &b : rs_src_)
@@ -2177,7 +2177,7 @@ void VirusPlugin::diag_report()
                 diag.dirty_ticks.exchange(0), diag.process_calls.exchange(0),
                 diag.process_max_us.exchange(0), diag.process_over.exchange(0),
                 out_ ? (int)out_->audio_ready() : -1, drops,
-                out_ ? (int)out_->busy() : -1, rate_, block_, diag.block_max.exchange(0));
+                out_ ? (int)out_->busy() : -1, rate_.load(), block_.load(), diag.block_max.exchange(0));
         fclose(f);
     }
 }
@@ -2195,7 +2195,7 @@ tresult PLUGIN_API VirusPlugin::process(ProcessData &data)
             long m = p->diag.process_max_us.load();
             while (us > m && !p->diag.process_max_us.compare_exchange_weak(m, us)) {
             }
-            if (us > (long)(samples * 1000000.0 / (p->rate_ > 0 ? p->rate_ : 44100)))
+            if (us > (long)(samples * 1000000.0 / (p->rate_ > 0 ? p->rate_.load() : 44100.0)))
                 p->diag.process_over++;
             long b = p->diag.block_max.load();
             while (samples > b && !p->diag.block_max.compare_exchange_weak(b, samples)) {

@@ -901,7 +901,7 @@ private:
     UnreadState unread_; // under state_mu_: a project setState could not parse, saved back unchanged (R8-5)
     std::mutex state_mu_;
     std::unique_ptr<DeviceOut> out_;
-    int block_ = 512;
+    std::atomic<int> block_{512}; // setupProcessing writes it, the UI and the worker read it (review B32)
     // R5 timing with the sync marker: an event at timeline position t sounds at ring frame t + lead() (S behind the
     // newest frame + A to reach the Virus in time), and process() reads the ring latency_frames() behind that, so the
     // host gets it exactly latency_frames() late in every session (reported as the plug-in latency)
@@ -939,7 +939,7 @@ public:
         return l;
     }
 private:
-    double rate_ = 44100;
+    std::atomic<double> rate_{44100}; // as block_
     std::string host_name_; // IHostApplication::getName; in an Audio Unit only "VST3-AU Wrapper"
     // the Virus timeline (docs/protocol.md "timing"): frames of the synth, stamped on every clock tick and event
     int64_t tl_ = 0;
