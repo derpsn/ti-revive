@@ -9,8 +9,8 @@ Last update: 2026-11-28: 0.8.45 released (merge 871438d9, tag v0.8.45, user go a
 
 ## Where things stand
 
-- **0.8.45** tagged 2026-11-28 on the merge 871438d9 (release CI 46140888754, check it went Latest with 8 assets;
-  site rebuild by hand after it). rc3 (f63a7dd8) was tested: Linux hil.sh x3 + L1-L3 LC4, win11 hil-win + W1 W2 WC4,
+- **0.8.45** tagged 2026-11-28 on the merge 871438d9 (release CI 46140888754 all green, Latest,
+  8 assets; site rebuilt by hand, site.yml 46141515479, live page shows 0.8.45). rc3 (f63a7dd8) was tested: Linux hil.sh x3 + L1-L3 LC4, win11 hil-win + W1 W2 WC4,
   Mac hil-mac + M1 M2 MC4, all pass (MC5 sleep dropped by the user). Round 0.8.46 on branch round-0.8.46 (from main, VERSION 0.8.46).
 - Open from 0.8.45: (1) win11 VM hil-win H1 once with the first 3 notes nearly silent after the cold start right after
   the VM boot (sent on time; not on Linux/Mac, not repeated): rerun hil-win after a fresh VM boot. (2) ASIO buffer
