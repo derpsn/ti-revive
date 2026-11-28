@@ -25,11 +25,7 @@ struct KeepLoaded {
 } // namespace
 #endif
 
-#ifdef VTI_NATIVE_DROPIN
-#define VTI_NATIVE_NAME "Virus TI"
-#else
 #define VTI_NATIVE_NAME "TI Revive" // "TI Revive Virus Control" until 0.8.42 (branding cleanup)
-#endif
 
 // The factory written out (what BEGIN_FACTORY_DEF / DEF_CLASS2 / END_FACTORY expand to), so the class order can
 // depend on the bundle: the Snow Audio Unit's copy of this module lists the Snow class first (factoryorder.h, E374)
@@ -60,9 +56,6 @@ SMTG_EXPORT_SYMBOL IPluginFactory *PLUGIN_API GetPluginFactory()
     TUID ti = INLINE_UID_FROM_FUID(vti::kVirusTIClassId);
     static PClassInfo2 tiClass(ti, PClassInfo::kManyInstances, kVstAudioEffectClass, VTI_NATIVE_NAME, 0,
                                Vst::PlugType::kInstrumentSynth, nullptr, VTI_NATIVE_VERSION, kVstVersionString);
-#ifdef VTI_NATIVE_DROPIN // (the drop-in build has the original's id already, and no Snow class)
-    gPluginFactory->registerClass(&tiClass, vti::VirusPlugin::create);
-#else
     // the same plug-in under the original Access plug-in's id: projects made with the original open with it in hosts
     // that ignore moduleinfo compatibility (Ableton Live 11, E221)
     TUID orig = INLINE_UID_FROM_FUID(vti::kOriginalClassId);
@@ -81,6 +74,5 @@ SMTG_EXPORT_SYMBOL IPluginFactory *PLUGIN_API GetPluginFactory()
                     {&snowClass, vti::VirusPlugin::create_snow}};
     for (int i : vti::class_order(snow_first()))
         gPluginFactory->registerClass(classes[i].info, classes[i].create);
-#endif
     return gPluginFactory;
 }

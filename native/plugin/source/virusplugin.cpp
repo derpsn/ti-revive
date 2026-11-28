@@ -43,10 +43,8 @@ namespace vti {
 // The plug-in takes over the class id of the TI Revive plug-in it replaces (0.8.0), so projects saved with
 // "Virus TI (TI Revive)" open with it: Windows/Linux the wrapper's id (the original's with byte 15 ^ 0x5A, vtiwrap.c),
 // macOS the bridge's id (tirbridge_vst3.cpp). The other ids are declared compatible in moduleinfo.json
-// (plugin/CMakeLists.txt). VTI_NATIVE_DROPIN: the original Access id (tests with projects of the original).
-#if defined(VTI_NATIVE_DROPIN)
-const FUID kVirusTIClassId(0xD9909FB4, 0x5F730543, 0xAC5397BE, 0x8958CD31);
-#elif defined(__APPLE__)
+// (plugin/CMakeLists.txt).
+#if defined(__APPLE__)
 const FUID kVirusTIClassId(0x7A1E5C3B, 0x4D2F4E61, 0x9B0C8A17, 0x2F64D5E9);
 #else
 const FUID kVirusTIClassId(0xB49F90D9, 0x735F4305, 0xAC5397BE, 0x8958CD31 ^ 0x5A);
@@ -1335,9 +1333,9 @@ void DeviceOut::run()
         bool ok = broker_.write(EP_PLUGIN_OUT, pk_.data(), pk_.size(), &end);
         if (stamp >= 0) // stamped traffic counts against the budget; queued SysEx does not (sendbudget.h, E266)
             budget_.take((int)pk_.size());
-        if (msg.size() > 7 && msg[0] == 0xF0 && msg[6] == 0x11) { // a multi dump (11 00 00 ...)
-            static const int pause = getenv("VTI_NATIVE_MULTI_PAUSE") ? atoi(getenv("VTI_NATIVE_MULTI_PAUSE")) : 250;
-            queue_hold_until_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(pause);
+        if (msg.size() > 7 && msg[0] == 0xF0 && msg[6] == 0x11) { // a multi dump (11 00 00 ...): the Virus drops the
+            // next message if it comes too soon (E145), so the queue waits 250 ms
+            queue_hold_until_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
         }
         if (klog_)
             klog_check();

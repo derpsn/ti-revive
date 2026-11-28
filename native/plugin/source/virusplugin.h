@@ -89,8 +89,8 @@
 
 namespace vti {
 
-// Original class ids (formats.md). The development build uses its own id (byte 15 XOR 0xA5) so it can sit next to
-// the original; VTI_NATIVE_DROPIN=ON builds with the original id (loads projects saved with the original).
+// Class ids (formats.md). Ours is the 0.7.x plug-in's (Windows/Linux: the original's last byte XOR 0x5A; macOS the
+// bridge's), so it can sit next to the original, which keeps its own id.
 extern const Steinberg::FUID kVirusTIClassId;
 extern const Steinberg::FUID kOriginalClassId; // the Access plug-in's id: a second class for its projects (E221)
 extern const Steinberg::FUID kSnowClassId;     // the Snow plug-in: the Snow's 4-part editor and files (E361)
