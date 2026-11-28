@@ -431,7 +431,7 @@ def page_landing(latest, releases, sums):
     </ul>
     <div class="testing">
       <div><h3>Automated tests</h3><p>{TESTS} unit tests run with every release build on Windows and Linux. They
-      covered {COVERAGE} of the lines of the core library when last measured, on {COVERAGE_DATE}, with fewer tests than today: the USB protocol, the device access, the editor and the reader
+      covered {COVERAGE} of the lines of the core library when last measured, on {COVERAGE_DATE}: the USB protocol, the device access, the editor and the reader
       for the Access files.</p></div>
       <div><h3>On the synth</h3><p>Changes that touch the Virus are tried on our TI2 Desktop before a release; the
       release notes say on which systems and in which DAWs.</p></div>
@@ -886,7 +886,7 @@ def page_changelog_landing(releases):
 SHARED_IMAGES = ["control-center.png", "control-center-nerd-mode.png", "plugin-help-mode.png", "plugin-help-inactive.png",
                  "plugin-menus.png", "plugin-library-drop.png",
                  "plugin-section-lock.png", "plugin-edit-menu.png", "plugin-help-menu.png"]
-TESTS = 1081 # unit tests in native/tests (vtitests), as of 2026-11-26 (0.8.44)
+TESTS = 1127 # unit tests in native/tests (vtitests), as of 2026-11-28 (0.8.45)
 
 # The "Thank you" list, in the Contributing block; the README's "Thank you" section is the same list (unit test).
 # (GitHub name, what they did); "#N" becomes a link to issue/PR N. Code and findings first, then testing and reports.
@@ -961,7 +961,7 @@ def notice_section():
   </div></div>
 </section>"""
 # line coverage of vticore, measured like CI (no Access files, empty home): gcov over the test run
-COVERAGE, COVERAGE_DATE = "95.5 %", "19 Nov 2026"
+COVERAGE, COVERAGE_DATE = "97.1 %", "28 Nov 2026"
 
 # the site: one page plus the changelog archive (file name, title and description for search results and link
 # previews, content)
