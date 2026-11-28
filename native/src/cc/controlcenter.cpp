@@ -346,8 +346,13 @@ bool restore_ram(Broker &broker, int bank, const std::vector<Dump> &backup,
             break;
         }
         if (rep.confirmed) { // R11-7: counted only once the broker says the whole dump went out, bounded
-            for (int t = 0; t < 2500 && !broker.written(end); t++)
+            // CANCEL ends the wait too (review B27); the dump itself is never cut, it went out whole above
+            for (int t = 0; t < 2500 && !broker.written(end) && !(stop && stop->load()); t++)
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            if (!broker.written(end) && stop && stop->load()) {
+                error = "cancelled"; // as at the top of the loop; this program went out but is not counted
+                break;
+            }
             if (!broker.written(end)) {
                 error = where + ": the TI Revive service did not report the write within 5 s";
                 break;
