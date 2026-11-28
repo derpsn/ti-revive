@@ -34,6 +34,7 @@ static void read_element(const pugi::xml_node &n, Element &e)
 
 bool EditorLayout::load(const std::vector<uint8_t> &xml, std::string &error)
 {
+    *this = EditorLayout(); // a second load starts empty (review B18)
     pugi::xml_document doc;
     auto r = doc.load_buffer(xml.data(), xml.size());
     if (!r) {

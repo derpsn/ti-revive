@@ -225,6 +225,11 @@ TEST(editor_layout_load)
     CHECK(!bad.load(Bytes{'<', 'x'}, err) && !err.empty());
     const char *empty = "<Editor><Frame width=\"10\" height=\"10\"/></Editor>";
     CHECK(!bad.load(Bytes(empty, empty + strlen(empty)), err));
+    // review B18: a second load starts empty (the elements were appended to the first load's)
+    EditorLayout twice;
+    CHECK(twice.load(Bytes(LAYOUT, LAYOUT + strlen(LAYOUT)), err) && twice.load(Bytes(LAYOUT, LAYOUT + strlen(LAYOUT)), err));
+    CHECK(twice.elements.size() == 2 && twice.bitmaps.size() == g.layout.bitmaps.size());
+    CHECK(!twice.load(Bytes(empty, empty + strlen(empty)), err) && twice.elements.empty() && twice.bitmaps.empty());
 }
 
 TEST(editor_render_controls)
