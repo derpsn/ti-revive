@@ -1796,19 +1796,26 @@ tresult PLUGIN_API VirusPlugin::setActive(TBool state)
         set_recall_progress(0);
         syncing_ = true;
         starting_ = true;
-        sync_thread_ = std::thread([this] {
-            sync_banks();
-            warm_categories();
-            // every later connection (reconnect, resume, a Virus switched on after the start, an answer after a missed
-            // sync): the bank check again, cache first like at start (R6-1, R2-3); ends with terminate()
-            while (!stop_warm_) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                if (!stop_warm_ && start_bank_check())
-                    sync_banks(false);
-                if (!stop_warm_)
-                    file_late_dumps();
-            }
-        });
+        try {
+            sync_thread_ = std::thread([this] {
+                sync_banks();
+                warm_categories();
+                // every later connection (reconnect, resume, a Virus switched on after the start, an answer after a missed
+                // sync): the bank check again, cache first like at start (R6-1, R2-3); ends with terminate()
+                while (!stop_warm_) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    if (!stop_warm_ && start_bank_check())
+                        sync_banks(false);
+                    if (!stop_warm_)
+                        file_late_dumps();
+                }
+            });
+        } catch (const std::system_error &) { // no thread (review B31): no sync, the plug-in still plays
+            syncing_ = false, starting_ = false;
+            set_recall_progress(127);
+            if (out_)
+                out_->log("Virus TI native: could not start the sync thread: banks not read\n");
+        }
     }
     if (state && !state_loaded_ && !default_.empty()) { // new instance: the original's default project
         {
@@ -4020,19 +4027,24 @@ void VirusPlugin::after_reconnect()
         return; // the running probe goes once more
     if (reconnect_thread_.joinable())
         reconnect_thread_.join(); // the previous one has finished (busy was false)
-    reconnect_thread_ = std::thread([this] {
-        do {
-            while (!stop_warm_ && reconnect_again_.exchange(false))
-                probe_virus_ready();
-            ready_ = true;
-            // process() anchors and pings now; notes wait for its marker like at a first start (at most 3 s)
-            const int64_t tm = now_ms();
-            while (!stop_warm_ && out_ && out_->marker.load() < 0 && now_ms() - tm < 3000)
-                std::this_thread::sleep_for(std::chrono::milliseconds(20));
-            starting_ = false;
-            reconnect_busy_ = false;
-        } while (!stop_warm_ && reconnect_again_.load() && !reconnect_busy_.exchange(true));
-    });
+    try {
+        reconnect_thread_ = std::thread([this] {
+            do {
+                while (!stop_warm_ && reconnect_again_.exchange(false))
+                    probe_virus_ready();
+                ready_ = true;
+                // process() anchors and pings now; notes wait for its marker like at a first start (at most 3 s)
+                const int64_t tm = now_ms();
+                while (!stop_warm_ && out_ && out_->marker.load() < 0 && now_ms() - tm < 3000)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                starting_ = false;
+                reconnect_busy_ = false;
+            } while (!stop_warm_ && reconnect_again_.load() && !reconnect_busy_.exchange(true));
+        });
+    } catch (const std::system_error &) { // no thread (review B31): as if the probe had ended; the next reconnect tries again
+        ready_ = true, starting_ = false;
+        reconnect_busy_ = false;
+    }
 }
 
 // the sync thread's poll (R6-1): a bank check asked for by a probe, and no RAM job runs. syncing_ is set under
@@ -4777,58 +4789,64 @@ bool VirusPlugin::download_bank(int bank)
     if (download_thread_.joinable())
         download_thread_.join(); // the previous one has ended (downloading_ was false)
     sync_->hold_late(true); // a dump kept from before could be older than what it reads (T18)
-    download_thread_ = std::thread([this, bank] {
-        Bank old, cache;
-        {
-            std::lock_guard<std::mutex> lk(banks_mu_);
-            auto &b = banks_[bank];
-            b.resize(128);
-            for (int p = 0; p < 128; p++)
-                old[p] = b[p], b[p].clear();
-            drop_.forget(); // the bank is read again: an undo could write over it
-        }
-        // our LCD shows the progress and the time left (the original shows it only on the Virus; user wish)
-        const int64_t t0 = now_ms();
-        auto lcd = [this, bank](const std::string &param, const std::string &value) {
-            std::lock_guard<std::mutex> lk(values_mu_);
-            lcd_param_ = param, lcd_value_ = value;
-            lcd_part_.clear(), lcd_orig_.clear();
-            lcd_dirty_ = true;
-        };
-        const std::string what = "Downloading " + bank_name(bank);
-        lcd(what, download_progress(0, 0));
-        ui_dirty_ = true;
-        if (out_)
-            out_->log("Virus TI native: download of RAM %c started\n", 'A' + bank);
-        int n = sync_->read_bank(bank + 1, cache, [&](int p) {
+    try {
+        download_thread_ = std::thread([this, bank] {
+            Bank old, cache;
             {
                 std::lock_guard<std::mutex> lk(banks_mu_);
-                banks_[bank][p] = cache[p];
+                auto &b = banks_[bank];
+                b.resize(128);
+                for (int p = 0; p < 128; p++)
+                    old[p] = b[p], b[p].clear();
+                drop_.forget(); // the bank is read again: an undo could write over it
             }
-            lcd(sync_lcd_title(what, cc::patch_name(cache[p])), download_progress(p + 1, now_ms() - t0));
+            // our LCD shows the progress and the time left (the original shows it only on the Virus; user wish)
+            const int64_t t0 = now_ms();
+            auto lcd = [this, bank](const std::string &param, const std::string &value) {
+                std::lock_guard<std::mutex> lk(values_mu_);
+                lcd_param_ = param, lcd_value_ = value;
+                lcd_part_.clear(), lcd_orig_.clear();
+                lcd_dirty_ = true;
+            };
+            const std::string what = "Downloading " + bank_name(bank);
+            lcd(what, download_progress(0, 0));
             ui_dirty_ = true;
-        }, &stop_warm_);
-        lcd(n == 128 ? "Download done" : "Download stopped", "");
-        {
-            std::lock_guard<std::mutex> lk(banks_mu_);
-            auto &b = banks_[bank];
-            for (int p = 0; p < 128; p++)
-                if (cache[p].empty())
-                    b[p] = old[p];
-                else
-                    old[p] = cache[p];
-            if (n == 128) // every slot read from the Virus just now
-                ram_confirmed_[bank] = true;
-        }
-        std::string dir = bank_cache_dir();
-        if (!dir.empty())
-            save_bank_file(dir + "/RAM " + (char)('A' + bank), old);
-        if (out_)
-            out_->log("Virus TI native: download of RAM %c %s\n", 'A' + bank, n == 128 ? "done" : "stopped");
-        ui_dirty_ = true;
+            if (out_)
+                out_->log("Virus TI native: download of RAM %c started\n", 'A' + bank);
+            int n = sync_->read_bank(bank + 1, cache, [&](int p) {
+                {
+                    std::lock_guard<std::mutex> lk(banks_mu_);
+                    banks_[bank][p] = cache[p];
+                }
+                lcd(sync_lcd_title(what, cc::patch_name(cache[p])), download_progress(p + 1, now_ms() - t0));
+                ui_dirty_ = true;
+            }, &stop_warm_);
+            lcd(n == 128 ? "Download done" : "Download stopped", "");
+            {
+                std::lock_guard<std::mutex> lk(banks_mu_);
+                auto &b = banks_[bank];
+                for (int p = 0; p < 128; p++)
+                    if (cache[p].empty())
+                        b[p] = old[p];
+                    else
+                        old[p] = cache[p];
+                if (n == 128) // every slot read from the Virus just now
+                    ram_confirmed_[bank] = true;
+            }
+            std::string dir = bank_cache_dir();
+            if (!dir.empty())
+                save_bank_file(dir + "/RAM " + (char)('A' + bank), old);
+            if (out_)
+                out_->log("Virus TI native: download of RAM %c %s\n", 'A' + bank, n == 128 ? "done" : "stopped");
+            ui_dirty_ = true;
+            sync_->hold_late(false);
+            downloading_ = false;
+        });
+    } catch (const std::system_error &) { // no thread (review B31): not downloaded
         sync_->hold_late(false);
         downloading_ = false;
-    });
+        return false;
+    }
     return true;
 }
 
@@ -5079,14 +5097,21 @@ bool VirusPlugin::send_ram_writes(std::vector<BankDrop::Write> w, const std::str
         download_thread_.join(); // the previous one has ended (downloading_ was false)
     if (sync_)
         sync_->hold_late(true); // a dump kept from before could be older than what it writes (T18)
-    download_thread_ = std::thread([this, w = std::move(w), rename, on_fail]() mutable {
-        if (!write_ram(w, rename) && on_fail)
-            on_fail();
-        ui_dirty_ = true;
+    try {
+        download_thread_ = std::thread([this, w = std::move(w), rename, on_fail]() mutable {
+            if (!write_ram(w, rename) && on_fail)
+                on_fail();
+            ui_dirty_ = true;
+            if (sync_)
+                sync_->hold_late(false);
+            downloading_ = false;
+        });
+    } catch (const std::system_error &) { // no thread (review B31): nothing written, refused like a busy Virus
         if (sync_)
             sync_->hold_late(false);
         downloading_ = false;
-    });
+        return false;
+    }
     return true;
 }
 
