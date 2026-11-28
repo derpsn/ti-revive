@@ -389,21 +389,10 @@ bool restore_ram(Broker &broker, int bank, const std::vector<Dump> &backup,
 
 bool write_syx(const std::vector<Dump> &dumps, const std::string &path, std::string &error)
 {
-    const fs::path tmp = u8path(path + ".tmp");
-    std::ofstream o(tmp, std::ios::binary);
+    std::vector<uint8_t> all;
     for (auto &d : dumps)
-        o.write((const char *)d.data(), (std::streamsize)d.size());
-    o.close(); // checked after the flush: a full disk fails only here
-    std::error_code ec;
-    if (o)
-        fs::rename(tmp, u8path(path), ec);
-    if (!o || ec) {
-        error = !o ? "cannot write " + path + ".tmp" : ec.message();
-        std::error_code rm;
-        fs::remove(tmp, rm);
-        return false;
-    }
-    return true;
+        all.insert(all.end(), d.begin(), d.end());
+    return u8write_atomic(path, all, &error);
 }
 
 } // namespace vti::cc

@@ -176,3 +176,28 @@ TEST(utf8_ascii_fold_for_the_bitmap_font)
     CHECK(ascii_fold("Bj\xF6rn") == "Bj?rn"); // a stray Latin-1 byte (not UTF-8): one '?'
     CHECK(ascii_fold("ab\x01" "c") == "ab?c");
 }
+
+// review B9/B15: the shared whole-or-nothing writer. Its temp file name is new for every call (two instances saving
+// the same file at once wrote into one "<file>.tmp" before), nothing is left behind, a failure says why
+TEST(utf8_atomic_write)
+{
+    const std::string dir = fresh_dir("vtitests-atomic");
+    const std::string f = dir + "/" + kJapanese + ".bin";
+    CHECK(u8temp_name(f) != u8temp_name(f));
+    CHECK(u8temp_name(f).rfind(f + ".", 0) == 0); // next to the file: the rename stays on one volume
+    std::string err;
+    CHECK(u8write_atomic(f, std::vector<uint8_t>{1, 2, 3}, &err) && err.empty());
+    CHECK(u8write_atomic(f, std::vector<uint8_t>{4, 5}, &err));
+    std::vector<uint8_t> back;
+    CHECK(u8read(f, back) && back == (std::vector<uint8_t>{4, 5}));
+    size_t files = 0;
+    for (auto &e : fs::directory_iterator(u8path(dir))) {
+        (void)e;
+        files++;
+    }
+    CHECK_EQ(files, 1u); // no temp file left
+    CHECK(!u8write_atomic(dir + "/missing/x.bin", std::vector<uint8_t>{1}, &err) && !err.empty());
+    CHECK(!u8read(dir + "/missing/x.bin", back));
+    CHECK(!u8read(f, back, 1)); // larger than the cap
+    remove_dir(dir);
+}

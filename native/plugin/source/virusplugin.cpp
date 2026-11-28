@@ -3726,19 +3726,7 @@ bool VirusPlugin::save_remote_template(const std::string &file)
     }
     std::error_code ec;
     fs::create_directories(path.parent_path(), ec);
-    const std::string tmp = vti::u8str(path) + ".tmp";
-    FILE *f = vti::u8fopen(tmp, "wb");
-    if (!f)
-        return false;
-    bool ok = fwrite(d.data(), 1, d.size(), f) == d.size();
-    ok = fclose(f) == 0 && ok;
-    if (ok)
-        fs::rename(vti::u8path(tmp), path, ec);
-    if (!ok || ec) {
-        fs::remove(vti::u8path(tmp), ec);
-        return false;
-    }
-    return true;
+    return vti::u8write_atomic(vti::u8str(path), d);
 }
 
 std::vector<KnobTemplate> VirusPlugin::knob_templates()

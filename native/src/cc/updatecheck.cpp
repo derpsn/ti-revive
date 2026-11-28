@@ -228,17 +228,8 @@ bool write_update_state(const UpdateState &s)
 {
     std::error_code ec;
     std::filesystem::create_directories(u8path(plugin_dir()), ec);
-    const std::filesystem::path f = u8path(update_state_path()), tmp = u8path(update_state_path() + ".tmp");
-    {
-        std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
-        if (!o)
-            return false;
-        o << format_update_state(s);
-        if (!o)
-            return false;
-    }
-    std::filesystem::rename(tmp, f, ec); // whole or not at all: the plug-in may read it at the same moment
-    return !ec;
+    const std::string text = format_update_state(s);
+    return u8write_atomic(update_state_path(), std::vector<uint8_t>(text.begin(), text.end())); // the plug-in may read it meanwhile
 }
 
 namespace {

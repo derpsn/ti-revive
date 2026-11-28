@@ -7,6 +7,10 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#ifndef _WIN32
+#include <csignal>
+#include <sys/resource.h>
+#endif
 
 using namespace vti;
 namespace fs = std::filesystem;
@@ -554,18 +558,26 @@ TEST(library_save_failure_keeps_the_file)
     CHECK(!save_library(lib, err) && !err.empty());
     CHECK(!fs::exists(dir / "Folder.mid.tmp"));
 #ifndef _WIN32
-    std::error_code ec;
-    if (fs::exists("/dev/full", ec)) { // writes to it fail when flushed (ENOSPC)
+    { // the disk is full when the buffered data is flushed at fclose: a file size limit (SIGXFSZ ignored -> EFBIG)
         const Dump old = single(9);
         write_file(dir / "Full.mid", old);
-        fs::create_symlink("/dev/full", dir / "Full.mid.tmp");
         lib.path = (dir / "Full.mid").string();
         err.clear();
-        CHECK(!save_library(lib, err) && !err.empty());
-        // not a symlink first: reading /dev/full never ends
-        CHECK(!fs::is_symlink(dir / "Full.mid") && read_file(dir / "Full.mid") == old);
-        CHECK(!fs::exists(fs::symlink_status(dir / "Full.mid.tmp")));
+        struct rlimit was, small;
+        getrlimit(RLIMIT_FSIZE, &was);
+        void (*was_sig)(int) = signal(SIGXFSZ, SIG_IGN);
+        small = was, small.rlim_cur = 100;
+        setrlimit(RLIMIT_FSIZE, &small);
+        const bool saved = save_library(lib, err);
+        setrlimit(RLIMIT_FSIZE, &was);
+        signal(SIGXFSZ, was_sig);
+        CHECK(!saved && !err.empty());
+        CHECK(read_file(dir / "Full.mid") == old);
     }
+    size_t left = 0; // no temp file behind (its name is unique per save, review B9)
+    for (auto &e : fs::directory_iterator(dir))
+        left += e.path().extension() == ".tmp";
+    CHECK_EQ(left, 0u);
 #endif
     fs::remove_all(dir);
 }

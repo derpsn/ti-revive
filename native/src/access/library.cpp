@@ -299,20 +299,7 @@ bool save_library(const PatchLibrary &lib, std::string &error)
     f.insert(f.end(), trk.begin(), trk.end());
     if (lower_ext(u8path(lib.path)) == ".syx")
         f = std::move(syx);
-    const fs::path tmp = u8path(lib.path + ".tmp");
-    std::ofstream o(tmp, std::ios::binary);
-    o.write((const char *)f.data(), (std::streamsize)f.size());
-    o.close(); // checked after the flush: a full disk fails only here
-    std::error_code ec;
-    if (o)
-        fs::rename(tmp, u8path(lib.path), ec);
-    if (!o || ec) {
-        error = !o ? "cannot write " + lib.path + ".tmp" : ec.message();
-        std::error_code rm;
-        fs::remove(tmp, rm);
-        return false;
-    }
-    return true;
+    return u8write_atomic(lib.path, f, &error);
 }
 
 std::string xdg_documents_dir(const std::string &home, const std::string &user_dirs)

@@ -420,19 +420,7 @@ bool RemoteTemplates::load_file(const std::string &path)
 
 bool RemoteTemplates::save_file(const std::string &path) const
 {
-    const std::string tmp = path + ".tmp";
-    FILE *f = u8fopen(tmp, "wb");
-    if (!f)
-        return false;
-    auto d = cache();
-    bool ok = fwrite(d.data(), 1, d.size(), f) == d.size();
-    ok = fclose(f) == 0 && ok;
-    std::error_code ec;
-    if (ok)
-        std::filesystem::rename(u8path(tmp), u8path(path), ec); // another instance reading meanwhile sees the old or the new file
-    if (!ok || ec)
-        std::filesystem::remove(u8path(tmp), ec);
-    return ok && !ec;
+    return u8write_atomic(path, cache());
 }
 
 std::string remote_text(const std::string &param, const RemoteTemplates &t, int selected, int knob)
