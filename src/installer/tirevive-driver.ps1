@@ -25,6 +25,26 @@ function Trust-Store([string]$name, $cert, [switch]$Remove) {
     $s.Close()
 }
 
+# our driver package(s) and trusted certificates: the recorded ones ($p = the state key) plus any found by content
+function Remove-OurDriver($p) {
+    # driver package(s): the recorded one plus any vti_winusb.inf package found in the driver store
+    $pkgs = @($p.DriverPackage) + @(((pnputil /enum-drivers | Out-String) -split "(\r?\n){2,}") |
+        Where-Object { $_ -match '(?i)vti_winusb\.inf' -and $_ -match '(oem\d+\.inf)' } | ForEach-Object { $Matches[1] })
+    foreach ($pkg in ($pkgs | Where-Object { $_ } | Select-Object -Unique)) {
+        "removing driver package $pkg"
+        pnputil /delete-driver $pkg /uninstall /force | Out-String
+    }
+    # certificates: the recorded thumbprint plus any "TI Revive local driver package" cert
+    foreach ($store in 'Root', 'TrustedPublisher') {
+        $thumbs = @($p.CertThumbprint) + @(Get-ChildItem "Cert:\LocalMachine\$store" |
+            Where-Object Subject -eq 'CN=TI Revive local driver package' | ForEach-Object Thumbprint)
+        foreach ($t in ($thumbs | Where-Object { $_ } | Select-Object -Unique)) {
+            "removing certificate $t from $store"
+            Trust-Store $store $t -Remove
+        }
+    }
+}
+
 # The MSI checks this action's exit code: a failure must fail the setup, not look like success (audit #15). No
 # uninstall follows a failed setup, so the certificate trusted a moment ago is taken back here.
 function Fail-Install([string]$why, [string]$thumb) {
@@ -64,6 +84,9 @@ if ($Action -eq 'install') {
             }
         }
     }
+    # an upgrade does not run the uninstall action (UPGRADINGPRODUCTCODE), so without this every version left its
+    # package and trusted certificate behind
+    Remove-OurDriver (Get-ItemProperty $reg -ErrorAction SilentlyContinue)
     $stage = Join-Path $env:TEMP ('tirevive-' + [guid]::NewGuid())
     New-Item -ItemType Directory $stage | Out-Null
     Copy-Item (Join-Path $here 'vti_winusb.inf') $stage
@@ -116,22 +139,7 @@ if ($Action -eq 'install') {
     & (Join-Path $here 'tirevive-shortcuts.ps1') uninstall
     $p = Get-ItemProperty $reg -ErrorAction SilentlyContinue
     Get-Process vtibroker -ErrorAction SilentlyContinue | Stop-Process -Force
-    # driver package(s): the recorded one plus any vti_winusb.inf package found in the driver store
-    $pkgs = @($p.DriverPackage) + @(((pnputil /enum-drivers | Out-String) -split "(\r?\n){2,}") |
-        Where-Object { $_ -match '(?i)vti_winusb\.inf' -and $_ -match '(oem\d+\.inf)' } | ForEach-Object { $Matches[1] })
-    foreach ($pkg in ($pkgs | Where-Object { $_ } | Select-Object -Unique)) {
-        "removing driver package $pkg"
-        pnputil /delete-driver $pkg /uninstall /force | Out-String
-    }
-    # certificates: the recorded thumbprint plus any "TI Revive local driver package" cert
-    foreach ($store in 'Root', 'TrustedPublisher') {
-        $thumbs = @($p.CertThumbprint) + @(Get-ChildItem "Cert:\LocalMachine\$store" |
-            Where-Object Subject -eq 'CN=TI Revive local driver package' | ForEach-Object Thumbprint)
-        foreach ($t in ($thumbs | Where-Object { $_ } | Select-Object -Unique)) {
-            "removing certificate $t from $store"
-            Trust-Store $store $t -Remove
-        }
-    }
+    Remove-OurDriver $p
     pnputil /scan-devices | Out-Null
     Remove-Item $reg -Recurse -Force -ErrorAction SilentlyContinue
 }
