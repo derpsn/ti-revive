@@ -9,6 +9,8 @@ if [ -n "$USER_NAME" ] && [ "$USER_NAME" != root ]; then
         launchctl bootout "gui/$USER_ID/$label" 2>/dev/null || true
     done
     rm -f "/Users/$USER_NAME/Library/LaunchAgents/com.tirevive.vtibroker.plist"
+    # the old bundle names are also listed in src/installer-linux/install.sh, src/installer-linux/uninstall.sh,
+    # "src/installer-mac/Uninstall TI Revive.command", native/packaging/windows/native.wxs: change them together
     # test builds of the native plug-in lived in the user's folder under another name (same class id: a DAW would
     # see two copies of "TI Revive"; "TI Revive Virus Control" was its name until 0.8.42)
     for n in "TI Revive" "TI Revive Virus Control"; do

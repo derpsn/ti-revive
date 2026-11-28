@@ -7,6 +7,8 @@
 # is shipped with TI Revive. A full Access installation (TI Revive 0.7 and older installed it: original plug-in, Access
 # ASIO and USB drivers, Control Center) is offered for removal; the files above stay.
 # -Quiet: no dialogs (tests): remove a full Access installation, report on stdout.
+# the same Access file setup for the other platforms: src/installer-linux/install.sh,
+# "src/installer-mac/Set up Access Virus TI files.command"
 param([string]$Msi, [string]$SourceDir, [string]$FromMsi, [switch]$Quiet,
       [switch]$Elevated, [string]$Extracted, [switch]$RemoveAccess) # -Elevated: the admin part (one UAC prompt)
 # from the setup.exe the folder ends with '\', which escapes the closing quote on the command line: C:\dir"

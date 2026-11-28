@@ -18,6 +18,8 @@ command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload 2>/dev/nu
 rm -rf "$HOME/.local/lib/tirevive"
 rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/tirevive/broker.token"
 rm -f "$PREFIX/drive_c/Program Files/Common Files/VST3/Virus TI (TI Revive).vst3"
+# the old bundle names are also listed in src/installer-linux/install.sh, src/installer-mac/scripts/postinstall,
+# "src/installer-mac/Uninstall TI Revive.command", native/packaging/windows/native.wxs: change them together
 rm -rf "$HOME/.vst3/TI Revive.vst3" "$HOME/.vst3/TI Revive Virus Control.vst3" "$HOME/.vst3/VirusTINative.vst3"
 rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/tirevive/access-dir"
 rm -rf "$HOME/.local/share/tirevive/access" # the unpacked Access files (your patch libraries in your documents folder stay)

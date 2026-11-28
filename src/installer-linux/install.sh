@@ -134,6 +134,8 @@ else
 fi
 
 # --- 3. the Access files ---------------------------------------------------------------------------------------------
+# the same Access file setup for the other platforms: "src/installer-mac/Set up Access Virus TI files.command",
+# src/installer/tirevive-access.ps1
 say "Access Virus TI files"
 OLD_COMMON="$PREFIX/drive_c/Program Files/Access Music/Virus TI/Common" # TI Revive 0.7 installed Access into Wine
 if [ -f "$ACCESS/Common/Virus Control.dll" ] && ! pe64 "$ACCESS/Common/Virus Control.dll"; then
@@ -204,6 +206,8 @@ say "plug-in TI Revive"
 mkdir -p "$HOME/.vst3"
 # the classic plug-in of TI Revive 0.7 (through yabridge) and the test builds: the new plug-in opens their projects
 rm -f "$VST3_DIR/Virus TI (TI Revive).vst3"
+# the old bundle names are also listed in src/installer-linux/uninstall.sh, src/installer-mac/scripts/postinstall,
+# "src/installer-mac/Uninstall TI Revive.command", native/packaging/windows/native.wxs: change them together
 # the plug-in's earlier bundle names (same class id: a DAW would see two copies); "TI Revive Virus Control" until 0.8.42
 rm -rf "$HOME/.vst3/yabridge/Virus TI (TI Revive).vst3" "$HOME/.vst3/VirusTINative.vst3" "$HOME/.vst3/TI Revive.vst3" \
     "$HOME/.vst3/TI Revive Virus Control.vst3"

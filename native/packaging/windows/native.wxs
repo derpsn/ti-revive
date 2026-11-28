@@ -11,6 +11,8 @@
           <Directory Id="NATIVERES" Name="Resources" />
         </Directory>
       </Directory>
+      <!-- the old bundle names are also listed in src/installer-linux/install.sh, src/installer-linux/uninstall.sh,
+           src/installer-mac/scripts/postinstall, "src/installer-mac/Uninstall TI Revive.command": change them together -->
       <!-- the bundle's name in 0.8.0-0.8.42 (same class id: two copies would clash in the DAW) -->
       <Directory Id="VCBUNDLE" Name="TI Revive Virus Control.vst3">
         <Directory Id="VCCONTENTS" Name="Contents">
