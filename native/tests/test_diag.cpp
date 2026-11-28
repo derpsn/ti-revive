@@ -310,3 +310,21 @@ TEST(diag_no_plugin_dir_writes_nothing)
     fs::current_path(cwd);
     CHECK(fs::is_empty(h.dir));
 }
+
+// review B23: the check's answer goes into update.txt as it is when the answer comes (up to ~20 s later): what the
+// plug-in wrote meanwhile (the version its note was shown for) is kept, not overwritten by the copy read at the start
+TEST(updatecheck_result_keeps_what_the_plugin_wrote)
+{
+    Home h("vtester");
+    UpdateState before;
+    before.latest = "0.8.43";
+    CHECK(write_update_state(before));
+    UpdateState answer = read_update_state(); // the thread's copy at its start
+    answer.checked = 1794700000, answer.latest = "0.8.44";
+    UpdateState plugin = read_update_state(); // meanwhile the plug-in shows its note
+    plugin.seen = "0.8.43";
+    CHECK(write_update_state(plugin));
+    CHECK(store_update_result(answer));
+    const UpdateState now = read_update_state();
+    CHECK(now.checked == 1794700000 && now.latest == "0.8.44" && now.seen == "0.8.43");
+}

@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <atomic>
+#include <system_error>
 #include <thread>
 #include <vector>
 #ifdef _WIN32
@@ -352,17 +354,33 @@ bool run_update_check(UpdateState &s, std::string &error)
     return true;
 }
 
+bool store_update_result(const UpdateState &answer)
+{
+    UpdateState s = read_update_state();
+    s.checked = answer.checked, s.latest = answer.latest;
+    return write_update_state(s);
+}
+
 void start_update_check_if_due(bool now)
 {
+    // one check at a time: switching the option on during the start's check does not start a second one
+    static std::atomic<bool> running{false};
     if (!plugin_option("update-check") || (!now && !check_due((long long)time(nullptr), read_update_state())))
         return;
-    std::thread([] {
-        UpdateState s = read_update_state();
-        std::string err;
-        if (run_update_check(s, err))
-            write_update_state(s);
-        // no answer (offline, no curl): nothing written, so the next start of the Control Center tries again
-    }).detach();
+    if (running.exchange(true))
+        return;
+    try {
+        std::thread([] {
+            UpdateState s;
+            std::string err;
+            if (run_update_check(s, err))
+                store_update_result(s);
+            // no answer (offline, no curl): nothing written, so the next start of the Control Center tries again
+            running = false;
+        }).detach();
+    } catch (const std::system_error &) { // no thread: no check this time
+        running = false;
+    }
 }
 
 } // namespace vti::cc
