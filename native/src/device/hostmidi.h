@@ -142,6 +142,8 @@ struct PedalSwitch {
     static bool pedal(int ctl) { return ctl >= 64 && ctl <= 69; }
     bool flips(int ch, int ctl, int value)
     {
+        if (!pedal(ctl)) // not a switch: always goes (the shift below is only defined for 64..69, review A21)
+            return true;
         const uint8_t bit = (uint8_t)(1u << (ctl - 64));
         uint8_t &down = down_[ch & 15], &known = known_[ch & 15];
         const bool now = value >= 64, flip = !(known & bit) || now != bool(down & bit);
