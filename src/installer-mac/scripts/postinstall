@@ -81,7 +81,15 @@ PLIST
     rm -f /tmp/tirevive-vtibroker.log
     OPT="/Users/$USER_NAME/Library/Application Support/virus-ti-native"
     mkdir -p "$OPT" && touch "$OPT/mac-usb-audio.on" && chown -R "$USER_NAME" "$OPT"
-    launchctl bootstrap system "$SVC_PLIST"
+    # launchd can refuse right after the bootout above (the old service still going away): one retry, then the
+    # install fails, since without the service the plug-in shows "not connected"
+    if ! launchctl bootstrap system "$SVC_PLIST"; then
+        sleep 2
+        launchctl bootstrap system "$SVC_PLIST" || {
+            echo "TI Revive (libusb): launchd could not start the service $SVC. Restart the Mac and run this installer again." >&2
+            exit 1
+        }
+    fi
 elif [ -f "$SVC_PLIST" ]; then
     launchctl bootout "system/$SVC" 2>/dev/null || true # gives the Virus back to Apple's driver (or: replug it)
     rm -f "$SVC_PLIST"
