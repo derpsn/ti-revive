@@ -1227,7 +1227,7 @@ static void *client_thread(void *arg)
                 break;
             }
             if (h.len >= 1 && vti_write_blocked(&c->sx, buf + 1, h.len - 1)) {
-                blog("refused a write of %d bytes (rule 2: Multi parameter 0-3 of page 0x72 or status F4)", h.len - 1);
+                blog("refused a write of %d bytes (rule 2: not whole packets, Multi parameter 0-3 of page 0x72 or status F4)", h.len - 1);
                 break;
             }
             if (h.len >= 1 && may_use(c)) {
