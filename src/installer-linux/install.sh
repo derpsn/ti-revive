@@ -25,7 +25,8 @@ die() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }
 
 CC_EXE="Virus Control Center.exe" # optional: the Control Center app takes its look from it
 find_msi() { # $1 = the path given on the command line, else the usual places
-    if [ -n "${1:-}" ]; then printf '%s\n' "$1"; return; fi
+    # absolute, because unpack_msi runs msiextract inside its target folder
+    case "${1:-}" in "") ;; /*) printf '%s\n' "$1"; return ;; *) printf '%s\n' "$PWD/$1"; return ;; esac
     for d in "$HERE" "$HOME/Downloads" "$HOME/Desktop" "$HOME"; do
         for f in "$d"/*Virus*TI*64-bit*.msi; do [ -f "$f" ] && printf '%s\n' "$f" && return; done
     done

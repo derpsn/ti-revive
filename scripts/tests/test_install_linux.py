@@ -119,6 +119,22 @@ class FindMsi(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             self.assertEqual(call("find_msi", "", home=home), "")
 
+    # audit 4: unpack_msi runs msiextract inside the target folder, so a relative .msi path given on the command
+    # line must become absolute first
+    def test_relative_path_unpacks(self):
+        with tempfile.TemporaryDirectory() as t:
+            os.makedirs(os.path.join(t, "bin"))
+            os.makedirs(os.path.join(t, "out"))
+            fake = os.path.join(t, "bin", "msiextract")
+            with open(fake, "w") as f:
+                f.write('#!/bin/sh\n[ -f "$1" ] && touch unpacked\n')
+            os.chmod(fake, 0o755)
+            open(os.path.join(t, "my.msi"), "w").close()
+            env = dict(os.environ, TIREVIVE_INSTALL_FUNCS_ONLY="1", PATH=os.path.join(t, "bin") + ":/usr/bin:/bin")
+            subprocess.run(["sh", "-c", '. "$1"; unpack_msi "$(find_msi my.msi)" out', "sh", INSTALL], env=env,
+                           cwd=t, check=True, capture_output=True)
+            self.assertTrue(os.path.exists(os.path.join(t, "out", "unpacked")))
+
 
 if __name__ == "__main__":
     unittest.main()
