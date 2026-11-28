@@ -86,9 +86,8 @@ unplug step on the Access driver, Mac "Virus TI MIDI" played through, Keyboard/P
 
 ## NEXT
 
-- Code review 2026-11-28 DONE (log/2026-11.md): 66/67 fixed, A8 skipped (finding wrong); unit tests 5/5, vtitests
-  1127, coverage 97.1 %. TI2 hil.sh ALL PASS (7444f55b plug-in + broker installed, old: vtibroker.bak-0.8.45-rc1).
-  Not run yet: --power/--sleep, a DAW, the editor, any macOS or Windows build of the changes.
+- Code review 2026-11-28 DONE (log/2026-11.md): 66/67 fixed, vtitests 1127, coverage 97.1 %, TI2 hil.sh ALL PASS
+  (7444f55b; old broker vtibroker.bak-0.8.45-rc1). Not run: --power/--sleep, a DAW, the editor, macOS/Windows builds.
 - Side project, not part of the rounds (user 2026-11-27): the Modern skin lives on branch `skin-modern` (f3fb89f7,
   local only); its state is in findings/skin-modern.md on that branch.
 
